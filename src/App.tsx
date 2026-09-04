@@ -30,12 +30,19 @@ const getFamilyColor = (jodiStr: string): string => {
   return '#ffffff';
 };
 
+const getFamilyKey = (jodiStr: string): string | null => {
+  if (!jodiStr || jodiStr.length < 2 || jodiStr.includes('*') || jodiStr.includes('✪')) return null;
+  for (const [key, fam] of Object.entries(JODI_FAMILIES)) {
+    if (fam.members.includes(jodiStr)) return key;
+  }
+  return null;
+};
+
 const checkSameFamily = (jodi1: string, jodi2: string): boolean => {
   if (!jodi1 || !jodi2 || jodi1.includes('*') || jodi2.includes('*') || jodi1.includes('✪')) return false;
-  for (const fam of Object.values(JODI_FAMILIES)) {
-    if (fam.members.includes(jodi1) && fam.members.includes(jodi2)) return true;
-  }
-  return false;
+  const fam1 = getFamilyKey(jodi1);
+  const fam2 = getFamilyKey(jodi2);
+  return fam1 !== null && fam1 === fam2;
 };
 
 const isRedJodi = (jodiStr: string): boolean => {
@@ -116,7 +123,6 @@ const App: React.FC = () => {
   const [minMatchCount, setMinMatchCount] = useState<number>(2);
   const [strictMode, setStrictMode] = useState<boolean>(false);
 
-  // Clicked cell state in Result Sheet
   const [clickedResultCell, setClickedResultCell] = useState<{ blockIdx: number; cIdx: number; value: string } | null>(null);
 
   const leftPanelRef = useRef<HTMLDivElement | null>(null);
@@ -185,7 +191,7 @@ const App: React.FC = () => {
 
     const minRow = Math.min(dragStartCell.rowIndex, rIdx);
     const maxRow = Math.max(dragStartCell.rowIndex, rIdx);
-    if (maxRow - minRow + 1 > 30) return;
+    if (maxRow - minRow + 1 > 20) return;
 
     const minCol = Math.min(dragStartCell.colIndex, cIdx);
     const maxCol = Math.max(dragStartCell.colIndex, cIdx);
@@ -353,22 +359,54 @@ const App: React.FC = () => {
   const currentMatch = matchedSets[currentMatchIndex] || null;
   const selectedMinRow = selectedCells.length > 0 ? Math.min(...selectedCells.map((c) => c.rowIndex)) : 0;
 
-  // NEW LOGIC HELPER: Highlights only if Result Cell belongs to Clicked Jodi's Family AND Main Sheet Cell at the exact same position belongs to the SAME family as this Result Cell
-  const checkStrictRelativeMatch = (resBlockIdx: number, resColIdx: number, resVal: string): boolean => {
-    if (!clickedResultCell || !currentMatch || !resVal) return false;
+  // LOGIC IMPLEMENTATION:
+  // 1. Gather all positions in Result Sheet where cell belongs to Clicked Cell's family
+  // 2. Extract corresponding Main Sheet values at those positions
+  // 3. Verify if ALL those Main Sheet values belong to ONE SINGLE family amongst themselves
+  const getGroupMatchMap = (): Set<string> => {
+    const matchedKeys = new Set<string>();
+    if (!clickedResultCell || !currentMatch) return matchedKeys;
 
-    // Condition 1: Result Sheet cell must belong to Clicked Jodi's family
-    if (!checkSameFamily(resVal, clickedResultCell.value)) return false;
+    const clickedFam = getFamilyKey(clickedResultCell.value);
+    if (!clickedFam) return matchedKeys;
 
-    // Find equivalent Row in Main Sheet
-    const mainRowIdx = selectedMinRow + (resBlockIdx - currentMatch.pastRowsCount);
-    const mainVal = formatJodiVal(fullSheetData[mainRowIdx]?.[resColIdx] || "");
+    const positions: { bIdx: number; cIdx: number; mainVal: string }[] = [];
 
-    if (!mainVal) return false;
+    // Find all matching family cells in Result Sheet
+    currentMatch.matchBlock.forEach((row, bIdx) => {
+      row.forEach((val, cIdx) => {
+        if (cIdx === 0) return;
+        const resVal = formatJodiVal(val);
+        if (checkSameFamily(resVal, clickedResultCell.value)) {
+          const mainRowIdx = selectedMinRow + (bIdx - currentMatch.pastRowsCount);
+          const mainVal = formatJodiVal(fullSheetData[mainRowIdx]?.[cIdx] || "");
+          positions.push({ bIdx, cIdx, mainVal });
+        }
+      });
+    });
 
-    // Condition 2: Main Sheet cell at that position must belong to the exact SAME family as this Result Sheet cell
-    return checkSameFamily(resVal, mainVal);
+    if (positions.length === 0) return matchedKeys;
+
+    // Check if ALL corresponding Main Sheet values belong to the same family
+    const validMainVals = positions.map(p => p.mainVal).filter(v => v && !v.includes('*') && !v.includes('✪'));
+    if (validMainVals.length === 0) return matchedKeys;
+
+    const firstMainFam = getFamilyKey(validMainVals[0]);
+    if (!firstMainFam) return matchedKeys;
+
+    const areAllMainSameFamily = validMainVals.every(val => getFamilyKey(val) === firstMainFam);
+
+    // Highlight only if Main Sheet cells are all in the same family
+    if (areAllMainSameFamily) {
+      positions.forEach(p => {
+        matchedKeys.add(`${p.bIdx}_${p.cIdx}`);
+      });
+    }
+
+    return matchedKeys;
   };
+
+  const activeMatchKeys = getGroupMatchMap();
 
   return (
     <div className="app-wrapper">
@@ -531,13 +569,12 @@ const App: React.FC = () => {
                       const isRed = isRedJodi(formattedVal);
                       const { diff, total } = calculateMetrics(formattedVal);
 
-                      // Check if corresponding Result Sheet Cell matches rule
+                      // Check if Result Click syncs to this Main cell position
                       let isSyncMainFamily = false;
                       if (currentMatch && clickedResultCell) {
                         const targetBlockIdx = (rIdx - selectedMinRow) + currentMatch.pastRowsCount;
-                        if (targetBlockIdx >= 0 && targetBlockIdx < currentMatch.matchBlock.length) {
-                          const resVal = formatJodiVal(currentMatch.matchBlock[targetBlockIdx]?.[cIdx] || "");
-                          isSyncMainFamily = checkStrictRelativeMatch(targetBlockIdx, cIdx, resVal);
+                        if (activeMatchKeys.has(`${targetBlockIdx}_${cIdx}`)) {
+                          isSyncMainFamily = true;
                         }
                       }
 
@@ -684,7 +721,7 @@ const App: React.FC = () => {
                           const isRed = isRedJodi(formattedVal);
                           const { diff, total } = calculateMetrics(formattedVal);
 
-                          const isSyncResultFamily = checkStrictRelativeMatch(blockIdx, cIdx, formattedVal);
+                          const isSyncResultFamily = activeMatchKeys.has(`${blockIdx}_${cIdx}`);
 
                           let cellBg = '#ffffff';
                           if (isSyncResultFamily) {
