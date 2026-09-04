@@ -353,41 +353,45 @@ const App: React.FC = () => {
   const currentMatch = matchedSets[currentMatchIndex] || null;
   const selectedMinRow = selectedCells.length > 0 ? Math.min(...selectedCells.map((c) => c.rowIndex)) : 0;
 
-  // --- EXACT 1-TO-1 POSITION HIGHLIGHT LOGIC ---
-  const resHighlightedPositions: { blockIdx: number; cIdx: number }[] = [];
-  const mainHighlightedPositions: { rIdx: number; cIdx: number }[] = [];
+ // --- EXACT 1-TO-1 POSITION HIGHLIGHT LOGIC ---
+const resHighlightedPositions: { blockIdx: number; cIdx: number }[] = [];
+const mainHighlightedPositions: { rIdx: number; cIdx: number }[] = [];
 
-  if (currentMatch && clickedOffsetCell) {
-    const clickedVal = formatJodiVal(currentMatch.matchBlock[clickedOffsetCell.blockIdx]?.[clickedOffsetCell.cIdx] || "");
+if (currentMatch && clickedOffsetCell) {
+  const clickedVal = formatJodiVal(
+    currentMatch.matchBlock[clickedOffsetCell.blockIdx]?.[clickedOffsetCell.cIdx] || ""
+  );
 
-    if (clickedVal) {
-      // 1. Result Sheet: Click केलेल्या जोडीच्या Family मधील सर्व जोड्या शोधणे
-      currentMatch.matchBlock.forEach((week, bIdx) => {
-        week.forEach((rawVal, cIdx) => {
-          if (cIdx > 0) {
-            const val = formatJodiVal(rawVal);
-            if (val && (val === clickedVal || checkSameFamily(val, clickedVal))) {
-              resHighlightedPositions.push({ blockIdx: bIdx, cIdx });
-            }
+  if (clickedVal) {
+    // १. Result Sheet मध्ये क्लिक केलेल्या फॅमिलीतील सर्व जोड्या शोधणे
+    currentMatch.matchBlock.forEach((week, bIdx) => {
+      week.forEach((rawVal, cIdx) => {
+        if (cIdx > 0) {
+          const val = formatJodiVal(rawVal);
+          if (val && (val === clickedVal || checkSameFamily(val, clickedVal))) {
+            resHighlightedPositions.push({ blockIdx: bIdx, cIdx });
           }
-        });
-      });
-
-      // 2. Main Sheet: Result Sheet मध्ये हायलाइट झालेल्या जोड्यांच्या तंतोतंत एकाच (Same Position/Index) वर असणाऱ्या सेल्स शोधणे
-      const matchStartRow = currentMatch.startRowIndex;
-      const pastOffset = currentMatch.pastRowsCount;
-
-      resHighlightedPositions.forEach((pos) => {
-        const correspondingMainRowIndex = matchStartRow - pastOffset + pos.blockIdx;
-        if (correspondingMainRowIndex >= 0 && correspondingMainRowIndex < fullSheetData.length) {
-          mainHighlightedPositions.push({
-            rIdx: correspondingMainRowIndex,
-            cIdx: pos.cIdx
-          });
         }
       });
-    }
+    });
+
+    // २. Main Sheet साठी अचूक Row Index (Exact Row Index) जोडणे
+    const matchStartRow = currentMatch.startRowIndex; // Main Sheet मधील Pattern चा पहिला Row
+    const pastCount = currentMatch.pastRowsCount;     // Past Rows ची संख्या
+
+    resHighlightedPositions.forEach((pos) => {
+      // Past Rows च्या Offset नुसार Main Sheet चा मूळ Row Index काढणे
+      const actualMainRow = matchStartRow - pastCount + pos.blockIdx;
+
+      if (actualMainRow >= 0 && actualMainRow < fullSheetData.length) {
+        mainHighlightedPositions.push({
+          rIdx: actualMainRow,
+          cIdx: pos.cIdx,
+        });
+      }
+    });
   }
+}
 
   return (
     <div className="app-wrapper">
@@ -700,35 +704,53 @@ const App: React.FC = () => {
                           const isRed = isRedJodi(formattedVal);
                           const { diff, total } = calculateMetrics(formattedVal);
 
-                          // RESULT SHEET GREEN HIGHLIGHT
-                          const isSyncResultFamily = resHighlightedPositions.some(
-                            (p) => p.blockIdx === blockIdx && p.cIdx === cIdx
-                          );
+                     // FULL SHEET HISTORY (MAIN SHEET) CELL STYLING
+const famColor = getFamilyColor(formattedVal);
+const isRed = isRedJodi(formattedVal);
+const { diff, total } = calculateMetrics(formattedVal);
 
-                          let cellBg = '#ffffff';
+// STRICT POSITION MATCH FOR MAIN SHEET
+const isSyncMainFamily = mainHighlightedPositions.some(
+  (p) => p.rIdx === rIdx && p.cIdx === cIdx
+);
 
-                          // १. जर क्लिक केले असेल आणि ही सेल त्या फॅमिलीतील असेल, तर ब्राइट हिरवा हायलाइट दिसेल
-                          if (clickedOffsetCell && isSyncResultFamily) {
-                            cellBg = CUSTOM_HIGHLIGHT_COLOR; // #00e676
-                          } 
-                          // २. मूळ पॅटर्नचे पेस्टल कलर्स जसे आहेत तसे राहतील
-                          else if (isMatch || isRepeatMatch) {
-                            cellBg = famColor;
-                          }
+let cellBg = '#ffffff';
 
-                          return (
-                            <td
-                              key={`match-cell-${blockIdx}-${cIdx}`}
-                              className="pdf-jodi-cell"
-                              style={{ 
-                                backgroundColor: cellBg, 
-                                border: isSyncResultFamily ? '3px solid #00c853' : isExactJodiMatch ? '2px solid #b71c1c' : (isMatch || isRepeatMatch) ? '2px solid #27ae60' : '1px solid #ccc',
-                                fontWeight: 'bold',
-                                padding: '2px 0px',
-                                cursor: 'pointer'
-                              }}
-                              onClick={() => handleResultCellClick(blockIdx, cIdx)}
-                            >
+// १. जर Result Sheet मध्ये क्लिक केले असेल आणि ही सेल त्या पोझिशनवर असेल तर BRIGHT GREEN
+if (clickedOffsetCell && isSyncMainFamily) {
+  cellBg = CUSTOM_HIGHLIGHT_COLOR; // #00e676 (हिरवा रंग)
+} 
+// २. नाहीतर मूळ Pattern Matching चे Pastel Colors जसे आहेत तसे राहतील
+else if (matchedSets.length === 0 && isSelected) {
+  cellBg = '#a0c4ff'; 
+} else if (isMatchedInOriginal || isRepeatMatch) {
+  cellBg = famColor; // मूळ पेस्टल कलर
+}
+
+return (
+  <td
+    key={`full-cell-${rIdx}-${cIdx}`}
+    className="pdf-jodi-cell"
+    data-row={rIdx}
+    data-col={cIdx}
+    style={{ 
+      backgroundColor: cellBg, 
+      // हिरव्या हायलाइटसाठी ठसठशीत Green Border (#00c853)
+      border: (clickedOffsetCell && isSyncMainFamily)
+        ? '3px solid #00c853' 
+        : isExactJodiMatch 
+        ? '2px solid #b71c1c' 
+        : (isMatchedInOriginal || isRepeatMatch) 
+        ? '2px solid #27ae60' 
+        : '1px solid #ccc',
+      fontWeight: 'bold',
+      padding: '2px 0px',
+      cursor: 'pointer' 
+    }}
+    onMouseDown={() => handleStartSelection(rIdx, cIdx, formattedVal)}
+    onMouseEnter={() => handleMoveSelection(rIdx, cIdx)}
+    onTouchStart={() => handleStartSelection(rIdx, cIdx, formattedVal)}
+  >
                               <div className={`jodi-val ${isRed ? 'red-text' : ''}`} style={{ fontSize: '14px', fontWeight: 'bold', textAlign: 'center', lineHeight: '1.1' }}>
                                 {formattedVal || '**'}
                                 {isExactJodiMatch && <span style={{ color: '#b71c1c', fontSize: '10px', marginLeft: '1px' }}>★</span>}
