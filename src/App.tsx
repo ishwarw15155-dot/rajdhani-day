@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import './App.css';
 
 // --- 15 MATKA FAMILIES WITH PASTEL COLORS ---
-// Fixed duplicate members across families
 const JODI_FAMILIES: Record<string, { members: string[]; color: string }> = {
   "01": { members: ["01", "10", "06", "60", "51", "15", "56", "65"], color: "#FFE1E6" },
   "02": { members: ["02", "20", "07", "70", "52", "25", "57", "75"], color: "#E2F0D9" },
@@ -20,8 +19,6 @@ const JODI_FAMILIES: Record<string, { members: string[]; color: string }> = {
   "38": { members: ["38", "83", "33", "88"], color: "#E8F5E9" },
   "49": { members: ["49", "94", "44", "99"], color: "#FFFDE7" }
 };
-
-const CUSTOM_HIGHLIGHT_COLOR = "#00e676";
 
 const getFamilyColor = (jodiStr: string): string => {
   if (!jodiStr || jodiStr.length < 2 || jodiStr.includes('*') || jodiStr.includes('✪')) return '#ffffff';
@@ -104,7 +101,6 @@ interface MatchResult {
   matchCount: number;
   matchedPatternLength: number;
   pastRowsCount: number;
-  repeatPositions: string[];
 }
 
 const App: React.FC = () => {
@@ -123,8 +119,6 @@ const App: React.FC = () => {
   const [currentMatchIndex, setCurrentMatchIndex] = useState<number>(0);
   const [minMatchCount, setMinMatchCount] = useState<number>(2);
   const [strictMode, setStrictMode] = useState<boolean>(false);
-
-  const [clickedResultCell, setClickedResultCell] = useState<{ blockIdx: number; cIdx: number; value: string } | null>(null);
 
   const leftPanelRef = useRef<HTMLDivElement | null>(null);
   const lastRowRef = useRef<HTMLTableRowElement | null>(null);
@@ -184,7 +178,6 @@ const App: React.FC = () => {
     const startCell = { rowIndex: rIdx, colIndex: cIdx, value: formatJodiVal(value) };
     setDragStartCell(startCell);
     setSelectedCells([startCell]);
-    setClickedResultCell(null);
   };
 
   const handleMoveSelection = (rIdx: number, cIdx: number): void => {
@@ -236,26 +229,12 @@ const App: React.FC = () => {
     const PAST_ROWS = 10;
     const FUTURE_ROWS = 10;
 
-    const selRepeatPairs: { cell1: CellPosition; cell2: CellPosition }[] = [];
-    for (let i = 0; i < selectedCells.length; i++) {
-      for (let j = i + 1; j < selectedCells.length; j++) {
-        const c1 = selectedCells[i];
-        const c2 = selectedCells[j];
-        if (c1.value && c2.value && !c1.value.includes('*') && !c1.value.includes('✪')) {
-          if (c1.value === c2.value || checkSameFamily(c1.value, c2.value)) {
-            selRepeatPairs.push({ cell1: c1, cell2: c2 });
-          }
-        }
-      }
-    }
-
     const matches: MatchResult[] = [];
 
     for (let i = 0; i <= fullSheetData.length - numRows; i++) {
       if (i === minRow) continue;
 
       let matchCount = 0;
-      const repeatPositions: string[] = [];
 
       for (const cell of selectedCells) {
         const offsetRow = cell.rowIndex - minRow;
@@ -274,28 +253,12 @@ const App: React.FC = () => {
         }
       }
 
-      for (const pair of selRepeatPairs) {
-        const off1 = pair.cell1.rowIndex - minRow;
-        const off2 = pair.cell2.rowIndex - minRow;
-        const targetJodi1 = formatJodiVal(fullSheetData[i + off1]?.[pair.cell1.colIndex] || "");
-        const targetJodi2 = formatJodiVal(fullSheetData[i + off2]?.[pair.cell2.colIndex] || "");
-
-        if (targetJodi1 && targetJodi2 && (targetJodi1 === targetJodi2 || checkSameFamily(targetJodi1, targetJodi2))) {
-          if (!strictMode) matchCount++;
-          const posKey1 = `${off1}_${pair.cell1.colIndex}`;
-          const posKey2 = `${off2}_${pair.cell2.colIndex}`;
-          if (!repeatPositions.includes(posKey1)) repeatPositions.push(posKey1);
-          if (!repeatPositions.includes(posKey2)) repeatPositions.push(posKey2);
-        }
-      }
-
       if (matchCount >= minMatchCount) {
         const blockStart = Math.max(0, i - PAST_ROWS);
         const blockEnd = Math.min(fullSheetData.length, i + numRows + FUTURE_ROWS);
         
         const matchBlock = fullSheetData.slice(blockStart, blockEnd);
         const startDate = formatDateString(fullSheetData[i]?.[0] || "");
-
         const actualPastCount = i - blockStart;
 
         matches.push({ 
@@ -304,8 +267,7 @@ const App: React.FC = () => {
           startRowIndex: i, 
           matchCount,
           matchedPatternLength: numRows,
-          pastRowsCount: actualPastCount,
-          repeatPositions
+          pastRowsCount: actualPastCount
         });
       }
     }
@@ -313,23 +275,12 @@ const App: React.FC = () => {
     matches.sort((a, b) => b.matchCount - a.matchCount);
     setMatchedSets(matches);
     setCurrentMatchIndex(0);
-    setClickedResultCell(null);
   };
 
   const handleReset = (): void => {
     setSelectedCells([]);
     setMatchedSets([]);
     setCurrentMatchIndex(0);
-    setClickedResultCell(null);
-  };
-
-  const handleResultCellClick = (blockIdx: number, cIdx: number, val: string) => {
-    if (cIdx === 0 || !val) return;
-    if (clickedResultCell && clickedResultCell.blockIdx === blockIdx && clickedResultCell.cIdx === cIdx) {
-      setClickedResultCell(null);
-    } else {
-      setClickedResultCell({ blockIdx, cIdx, value: val });
-    }
   };
 
   if (!isLoggedIn) {
@@ -359,44 +310,6 @@ const App: React.FC = () => {
 
   const currentMatch = matchedSets[currentMatchIndex] || null;
   const selectedMinRow = selectedCells.length > 0 ? Math.min(...selectedCells.map((c) => c.rowIndex)) : 0;
-
-  // --- REVISED SIMPLE HIGHLIGHT LOGIC ---
-  const getGroupMatchMap = (): Set<string> => {
-    const matchedKeys = new Set<string>();
-    if (!clickedResultCell || !currentMatch) return matchedKeys;
-
-    const clickedFam = getFamilyKey(clickedResultCell.value);
-    if (!clickedFam) return matchedKeys;
-
-    const matchingPositions: { bIdx: number; cIdx: number; mainVal: string }[] = [];
-
-    currentMatch.matchBlock.forEach((row, bIdx) => {
-      row.forEach((val, cIdx) => {
-        if (cIdx === 0) return;
-        const resVal = formatJodiVal(val);
-        if (checkSameFamily(resVal, clickedResultCell.value)) {
-          const offsetFromPattern = bIdx - currentMatch.pastRowsCount;
-          const mainRowIdx = selectedMinRow + offsetFromPattern;
-          
-          const mainVal = fullSheetData[mainRowIdx]?.[cIdx] 
-            ? formatJodiVal(fullSheetData[mainRowIdx][cIdx]) 
-            : "";
-          
-          matchingPositions.push({ bIdx, cIdx, mainVal });
-        }
-      });
-    });
-
-    if (matchingPositions.length === 0) return matchedKeys;
-
-    matchingPositions.forEach(p => {
-      matchedKeys.add(`${p.bIdx}_${p.cIdx}`);
-    });
-
-    return matchedKeys;
-  };
-
-  const activeMatchKeys = getGroupMatchMap();
 
   return (
     <div className="app-wrapper">
@@ -457,10 +370,7 @@ const App: React.FC = () => {
           {matchedSets.length > 0 && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: '6px', background: '#34495e', padding: '3px 6px', borderRadius: '3px' }}>
               <button 
-                onClick={() => {
-                  setCurrentMatchIndex((prev) => Math.max(0, prev - 1));
-                  setClickedResultCell(null);
-                }}
+                onClick={() => setCurrentMatchIndex((prev) => Math.max(0, prev - 1))}
                 disabled={currentMatchIndex === 0}
                 style={{ cursor: 'pointer', fontSize: '11px' }}
               >
@@ -470,10 +380,7 @@ const App: React.FC = () => {
                 Match {currentMatchIndex + 1} of {matchedSets.length}
               </span>
               <button 
-                onClick={() => {
-                  setCurrentMatchIndex((prev) => Math.min(matchedSets.length - 1, prev + 1));
-                  setClickedResultCell(null);
-                }}
+                onClick={() => setCurrentMatchIndex((prev) => Math.min(matchedSets.length - 1, prev + 1))}
                 disabled={currentMatchIndex === matchedSets.length - 1}
                 style={{ cursor: 'pointer', fontSize: '11px' }}
               >
@@ -529,32 +436,27 @@ const App: React.FC = () => {
 
                       let isMatchedInOriginal = false;
                       let isExactJodiMatch = false;
-                      let isDiffMatch = false;
-                      let isTotalMatch = false;
-                      let isRepeatMatch = false;
 
                       if (currentMatch) {
                         const matchStart = currentMatch.startRowIndex;
-                        const maxSelRow = selectedCells.length > 0 ? Math.max(...selectedCells.map(c => c.rowIndex)) : 0;
+                        const selCell = selectedCells.find(c => c.rowIndex === rIdx && c.colIndex === cIdx);
 
-                        if (rIdx >= selectedMinRow && rIdx <= maxSelRow) {
+                        if (selCell) {
                           const offsetRow = rIdx - selectedMinRow;
                           const targetHistJodi = formatJodiVal(fullSheetData[matchStart + offsetRow]?.[cIdx] || "");
-                          const posKey = `${offsetRow}_${cIdx}`;
-                          
-                          const isUserSelected = selectedCells.some(c => c.rowIndex === rIdx && c.colIndex === cIdx);
 
-                          if (isUserSelected) {
-                            if (checkSameFamily(formattedVal, targetHistJodi) || formattedVal === targetHistJodi) {
+                          if (strictMode) {
+                            if (formattedVal === targetHistJodi && formattedVal !== "") {
+                              isMatchedInOriginal = true;
+                              isExactJodiMatch = true;
+                            }
+                          } else {
+                            if (checkSameFamily(formattedVal, targetHistJodi) || (formattedVal === targetHistJodi && formattedVal !== "")) {
                               isMatchedInOriginal = true;
                             }
-                            if (formattedVal === targetHistJodi) isExactJodiMatch = true;
-                            if (currentMatch.repeatPositions.includes(posKey)) isRepeatMatch = true;
-
-                            const selMetrics = calculateMetrics(formattedVal);
-                            const matchMetrics = calculateMetrics(targetHistJodi);
-                            if (selMetrics.diffNum !== null && selMetrics.diffNum === matchMetrics.diffNum) isDiffMatch = true;
-                            if (selMetrics.totalNum !== null && selMetrics.totalNum === matchMetrics.totalNum) isTotalMatch = true;
+                            if (formattedVal === targetHistJodi && formattedVal !== "") {
+                              isExactJodiMatch = true;
+                            }
                           }
                         }
                       }
@@ -563,24 +465,12 @@ const App: React.FC = () => {
                       const isRed = isRedJodi(formattedVal);
                       const { diff, total } = calculateMetrics(formattedVal);
 
-                      let isSyncMainFamily = false;
-                      if (currentMatch && clickedResultCell) {
-                        const targetBlockIdx = (rIdx - selectedMinRow) + currentMatch.pastRowsCount;
-                        if (activeMatchKeys.has(`${targetBlockIdx}_${cIdx}`)) {
-                          isSyncMainFamily = true;
-                        }
-                      }
-
                       let cellBg = '#ffffff';
-                      if (isSyncMainFamily) {
-                        cellBg = CUSTOM_HIGHLIGHT_COLOR; 
-                      } else if (matchedSets.length === 0 && isSelected) {
+                      if (matchedSets.length === 0 && isSelected) {
                         cellBg = '#a0c4ff'; 
-                      } else if (isMatchedInOriginal || isRepeatMatch) {
+                      } else if (isMatchedInOriginal) {
                         cellBg = famColor;
                       }
-
-                      const isHighlightCell = isMatchedInOriginal || isRepeatMatch || isSyncMainFamily;
 
                       return (
                         <td
@@ -590,7 +480,7 @@ const App: React.FC = () => {
                           data-col={cIdx}
                           style={{ 
                             backgroundColor: cellBg, 
-                            border: isSyncMainFamily ? '2px solid #00c853' : isExactJodiMatch ? '2px solid #b71c1c' : isHighlightCell ? '2px solid #27ae60' : '1px solid #ccc',
+                            border: isExactJodiMatch ? '2px solid #b71c1c' : isMatchedInOriginal ? '2px solid #27ae60' : '1px solid #ccc',
                             fontWeight: 'bold',
                             padding: '2px 0px',
                             cursor: 'pointer' 
@@ -604,10 +494,10 @@ const App: React.FC = () => {
                             {isExactJodiMatch && <span style={{ color: '#b71c1c', fontSize: '10px', marginLeft: '1px' }}>★</span>}
                           </div>
                           <div data-row={rIdx} data-col={cIdx} className="metrics-row" style={{ fontSize: '9px', display: 'flex', justifyContent: 'space-between', padding: '0 2px', marginTop: '1px' }}>
-                            <span className="diff-val" style={{ color: '#8b0000', fontWeight: 'bold', backgroundColor: isDiffMatch ? '#fff59d' : 'transparent', padding: '0 1px', borderRadius: '2px' }}>
+                            <span className="diff-val" style={{ color: '#8b0000', fontWeight: 'bold' }}>
                               {diff || ''}
                             </span>
-                            <span className="total-val" style={{ color: '#006400', fontWeight: 'bold', backgroundColor: isTotalMatch ? '#fff59d' : 'transparent', padding: '0 1px', borderRadius: '2px' }}>
+                            <span className="total-val" style={{ color: '#006400', fontWeight: 'bold' }}>
                               {total || ''}
                             </span>
                           </div>
@@ -681,32 +571,23 @@ const App: React.FC = () => {
                           const targetSelectedCell = isPatternRow 
                             ? selectedCells.find((c) => (c.rowIndex - selectedMinRow) === patternRowIndex && c.colIndex === cIdx)
                             : null;
-                          const posKey = `${patternRowIndex}_${cIdx}`;
 
                           let isMatch = false;
                           let isExactJodiMatch = false;
-                          let isDiffMatch = false;
-                          let isTotalMatch = false;
-                          let isRepeatMatch = false;
 
-                          if (isPatternRow) {
-                            if (currentMatch.repeatPositions.includes(posKey)) {
-                              isRepeatMatch = true;
-                            }
-
-                            if (targetSelectedCell) {
+                          if (isPatternRow && targetSelectedCell && targetSelectedCell.value !== "") {
+                            if (strictMode) {
+                              if (formattedVal === targetSelectedCell.value) {
+                                isMatch = true;
+                                isExactJodiMatch = true;
+                              }
+                            } else {
                               if (checkSameFamily(formattedVal, targetSelectedCell.value) || formattedVal === targetSelectedCell.value) {
                                 isMatch = true;
                               }
                               if (formattedVal === targetSelectedCell.value) {
                                 isExactJodiMatch = true;
                               }
-
-                              const selMetrics = calculateMetrics(targetSelectedCell.value);
-                              const resMetrics = calculateMetrics(formattedVal);
-
-                              if (selMetrics.diffNum !== null && selMetrics.diffNum === resMetrics.diffNum) isDiffMatch = true;
-                              if (selMetrics.totalNum !== null && selMetrics.totalNum === resMetrics.totalNum) isTotalMatch = true;
                             }
                           }
 
@@ -714,12 +595,8 @@ const App: React.FC = () => {
                           const isRed = isRedJodi(formattedVal);
                           const { diff, total } = calculateMetrics(formattedVal);
 
-                          const isSyncResultFamily = activeMatchKeys.has(`${blockIdx}_${cIdx}`);
-
                           let cellBg = '#ffffff';
-                          if (isSyncResultFamily) {
-                            cellBg = CUSTOM_HIGHLIGHT_COLOR; 
-                          } else if (isMatch || isRepeatMatch) {
+                          if (isMatch) {
                             cellBg = famColor;
                           }
 
@@ -729,22 +606,20 @@ const App: React.FC = () => {
                               className="pdf-jodi-cell"
                               style={{ 
                                 backgroundColor: cellBg, 
-                                border: isSyncResultFamily ? '2px solid #00c853' : isExactJodiMatch ? '2px solid #b71c1c' : (isMatch || isRepeatMatch) ? '2px solid #27ae60' : '1px solid #ccc',
+                                border: isExactJodiMatch ? '2px solid #b71c1c' : isMatch ? '2px solid #27ae60' : '1px solid #ccc',
                                 fontWeight: 'bold',
-                                padding: '2px 0px',
-                                cursor: 'pointer'
+                                padding: '2px 0px'
                               }}
-                              onClick={() => handleResultCellClick(blockIdx, cIdx, formattedVal)}
                             >
                               <div className={`jodi-val ${isRed ? 'red-text' : ''}`} style={{ fontSize: '14px', fontWeight: 'bold', textAlign: 'center', lineHeight: '1.1' }}>
                                 {formattedVal || '**'}
                                 {isExactJodiMatch && <span style={{ color: '#b71c1c', fontSize: '10px', marginLeft: '1px' }}>★</span>}
                               </div>
                               <div className="metrics-row" style={{ fontSize: '9px', display: 'flex', justifyContent: 'space-between', padding: '0 2px', marginTop: '1px' }}>
-                                <span className="diff-val" style={{ color: '#8b0000', fontWeight: 'bold', backgroundColor: isDiffMatch ? '#fff59d' : 'transparent', padding: '0 1px', borderRadius: '2px' }}>
+                                <span className="diff-val" style={{ color: '#8b0000', fontWeight: 'bold' }}>
                                   {diff || ''}
                                 </span>
-                                <span className="total-val" style={{ color: '#006400', fontWeight: 'bold', backgroundColor: isTotalMatch ? '#fff59d' : 'transparent', padding: '0 1px', borderRadius: '2px' }}>
+                                <span className="total-val" style={{ color: '#006400', fontWeight: 'bold' }}>
                                   {total || ''}
                                 </span>
                               </div>
