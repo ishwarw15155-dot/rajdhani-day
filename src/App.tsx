@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import './App.css';
 
 // --- 15 MATKA FAMILIES WITH PASTEL COLORS ---
+// Fixed duplicate members across families
 const JODI_FAMILIES: Record<string, { members: string[]; color: string }> = {
   "01": { members: ["01", "10", "06", "60", "51", "15", "56", "65"], color: "#FFE1E6" },
   "02": { members: ["02", "20", "07", "70", "52", "25", "57", "75"], color: "#E2F0D9" },
@@ -13,7 +14,7 @@ const JODI_FAMILIES: Record<string, { members: string[]; color: string }> = {
   "14": { members: ["14", "41", "19", "91", "64", "46", "69", "96"], color: "#D5E8D4" },
   "16": { members: ["16", "61", "11", "66"], color: "#F8CECC" },
   "23": { members: ["23", "32", "28", "82", "73", "37", "78", "87"], color: "#DAE8FC" },
-  "24": { members: ["24", "42", "29", "92", "74", "47", "79", "97"], color: "#FFF2CC" },
+  "24": { members: ["24", "42", "29", "92", "79", "97"], color: "#FFF2CC" },
   "27": { members: ["27", "72", "22", "77"], color: "#E1F5FE" },
   "34": { members: ["34", "43", "39", "93", "84", "48", "89", "98"], color: "#F3E5F5" },
   "38": { members: ["38", "83", "33", "88"], color: "#E8F5E9" },
@@ -367,7 +368,6 @@ const App: React.FC = () => {
     const clickedFam = getFamilyKey(clickedResultCell.value);
     if (!clickedFam) return matchedKeys;
 
-    // 1. Find all cells in Result Sheet that belong to clicked cell's family
     const matchingPositions: { bIdx: number; cIdx: number; mainVal: string }[] = [];
 
     currentMatch.matchBlock.forEach((row, bIdx) => {
@@ -375,8 +375,13 @@ const App: React.FC = () => {
         if (cIdx === 0) return;
         const resVal = formatJodiVal(val);
         if (checkSameFamily(resVal, clickedResultCell.value)) {
-          const mainRowIdx = selectedMinRow + (bIdx - currentMatch.pastRowsCount);
-          const mainVal = formatJodiVal(fullSheetData[mainRowIdx]?.[cIdx] || "");
+          const offsetFromPattern = bIdx - currentMatch.pastRowsCount;
+          const mainRowIdx = selectedMinRow + offsetFromPattern;
+          
+          const mainVal = fullSheetData[mainRowIdx]?.[cIdx] 
+            ? formatJodiVal(fullSheetData[mainRowIdx][cIdx]) 
+            : "";
+          
           matchingPositions.push({ bIdx, cIdx, mainVal });
         }
       });
@@ -384,23 +389,9 @@ const App: React.FC = () => {
 
     if (matchingPositions.length === 0) return matchedKeys;
 
-    // 2. Collect valid values from Main Sheet at those exact positions
-    const validMainVals = matchingPositions.map(p => p.mainVal).filter(v => v && !v.includes('*') && !v.includes('✪'));
-    
-    if (validMainVals.length === 0) return matchedKeys;
-
-    // 3. Check if all corresponding Main Sheet values belong to the same family
-    const targetMainFam = getFamilyKey(validMainVals[0]);
-    const isMainGroupUniform = validMainVals.length > 1 
-      ? validMainVals.every(v => getFamilyKey(v) === targetMainFam)
-      : true;
-
-    // 4. If Main Sheet cells are of the same family, highlight those positions
-    if (isMainGroupUniform) {
-      matchingPositions.forEach(p => {
-        matchedKeys.add(`${p.bIdx}_${p.cIdx}`);
-      });
-    }
+    matchingPositions.forEach(p => {
+      matchedKeys.add(`${p.bIdx}_${p.cIdx}`);
+    });
 
     return matchedKeys;
   };
@@ -551,16 +542,20 @@ const App: React.FC = () => {
                           const targetHistJodi = formatJodiVal(fullSheetData[matchStart + offsetRow]?.[cIdx] || "");
                           const posKey = `${offsetRow}_${cIdx}`;
                           
-                          if (checkSameFamily(formattedVal, targetHistJodi) || formattedVal === targetHistJodi) {
-                            isMatchedInOriginal = true;
-                          }
-                          if (formattedVal === targetHistJodi) isExactJodiMatch = true;
-                          if (currentMatch.repeatPositions.includes(posKey)) isRepeatMatch = true;
+                          const isUserSelected = selectedCells.some(c => c.rowIndex === rIdx && c.colIndex === cIdx);
 
-                          const selMetrics = calculateMetrics(formattedVal);
-                          const matchMetrics = calculateMetrics(targetHistJodi);
-                          if (selMetrics.diffNum !== null && selMetrics.diffNum === matchMetrics.diffNum) isDiffMatch = true;
-                          if (selMetrics.totalNum !== null && selMetrics.totalNum === matchMetrics.totalNum) isTotalMatch = true;
+                          if (isUserSelected) {
+                            if (checkSameFamily(formattedVal, targetHistJodi) || formattedVal === targetHistJodi) {
+                              isMatchedInOriginal = true;
+                            }
+                            if (formattedVal === targetHistJodi) isExactJodiMatch = true;
+                            if (currentMatch.repeatPositions.includes(posKey)) isRepeatMatch = true;
+
+                            const selMetrics = calculateMetrics(formattedVal);
+                            const matchMetrics = calculateMetrics(targetHistJodi);
+                            if (selMetrics.diffNum !== null && selMetrics.diffNum === matchMetrics.diffNum) isDiffMatch = true;
+                            if (selMetrics.totalNum !== null && selMetrics.totalNum === matchMetrics.totalNum) isTotalMatch = true;
+                          }
                         }
                       }
 
@@ -568,7 +563,6 @@ const App: React.FC = () => {
                       const isRed = isRedJodi(formattedVal);
                       const { diff, total } = calculateMetrics(formattedVal);
 
-                      // Check if Result Click syncs to this Main cell position
                       let isSyncMainFamily = false;
                       if (currentMatch && clickedResultCell) {
                         const targetBlockIdx = (rIdx - selectedMinRow) + currentMatch.pastRowsCount;
