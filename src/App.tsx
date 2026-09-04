@@ -89,7 +89,7 @@ const formatDateString = (dateVal: string): string => {
 };
 
 const DAYS: string[] = ["DATE", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
-const GOOGLE_SHEET_API_URL: string = "https://script.google.com/macros/s/AKfycbxl1Qq4yqrRuvYC_H3ZsMDXyUGZw245Ws3kWm8l075Osb0WyZktd6QJosOe_jdgHECd/exec";
+const GOOGLE_SHEET_API_URL: string = "https://script.google.com/macros/s/AKfycbw3jWRTYljkZp28TXDEqTeEW_lQHzfzo2IAp6_-j-Ez8dkhO_XGMc4bkMaoVats-25A/exec";
 
 interface CellPosition {
   rowIndex: number;
