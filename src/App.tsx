@@ -20,14 +20,6 @@ const JODI_FAMILIES: Record<string, { members: string[]; color: string }> = {
   "49": { members: ["49", "94", "44", "99"], color: "#FFFDE7" }
 };
 
-const getFamilyColor = (jodiStr: string): string => {
-  if (!jodiStr || jodiStr.length < 2 || jodiStr.includes('*') || jodiStr.includes('✪')) return '#ffffff';
-  for (const fam of Object.values(JODI_FAMILIES)) {
-    if (fam.members.includes(jodiStr)) return fam.color;
-  }
-  return '#ffffff';
-};
-
 const getFamilyKey = (jodiStr: string): string | null => {
   if (!jodiStr || jodiStr.length < 2 || jodiStr.includes('*') || jodiStr.includes('✪')) return null;
   for (const [key, fam] of Object.entries(JODI_FAMILIES)) {
@@ -54,16 +46,16 @@ const isRedJodi = (jodiStr: string): boolean => {
 
 const calculateMetrics = (jodiStr: string) => {
   if (!jodiStr || jodiStr.length < 2 || jodiStr.includes('*') || jodiStr.includes('✪')) {
-    return { diff: null, total: null, diffNum: null, totalNum: null };
+    return { diff: null, total: null };
   }
   const open = parseInt(jodiStr[0], 10);
   const close = parseInt(jodiStr[1], 10);
-  if (isNaN(open) || isNaN(close)) return { diff: null, total: null, diffNum: null, totalNum: null };
+  if (isNaN(open) || isNaN(close)) return { diff: null, total: null };
 
   const diffNum = (close - open + 10) % 10;
   const totalNum = (open + close) % 10;
 
-  return { diff: `D-${diffNum}`, total: `T-${totalNum}`, diffNum, totalNum };
+  return { diff: `D-${diffNum}`, total: `T-${totalNum}` };
 };
 
 const formatJodiVal = (val: string): string => {
@@ -101,7 +93,12 @@ interface MatchResult {
   matchCount: number;
   matchedPatternLength: number;
   pastRowsCount: number;
-  matchedCellCoords: string[]; // Track relative offsets e.g. "relRow_colIndex"
+}
+
+interface ClickedResultCell {
+  blockIdx: number;
+  colIndex: number;
+  value: string;
 }
 
 const App: React.FC = () => {
@@ -121,7 +118,9 @@ const App: React.FC = () => {
   const [minMatchCount, setMinMatchCount] = useState<number>(2);
   const [strictMode, setStrictMode] = useState<boolean>(false);
 
-  const leftPanelRef = useRef<HTMLDivElement | null>(null);
+  // RESULT SHEET CLICKED CELL STATE
+  const [activeResultCell, setActiveResultCell] = useState<ClickedResultCell | null>(null);
+
   const lastRowRef = useRef<HTMLTableRowElement | null>(null);
 
   useEffect(() => {
@@ -149,14 +148,6 @@ const App: React.FC = () => {
     fetchData();
   }, []);
 
-  useEffect(() => {
-    if (isLoggedIn && !loading && lastRowRef.current) {
-      setTimeout(() => {
-        scrollToBottom();
-      }, 300);
-    }
-  }, [isLoggedIn, loading]);
-
   const scrollToBottom = (): void => {
     if (lastRowRef.current) {
       lastRowRef.current.scrollIntoView({ behavior: 'smooth' });
@@ -179,6 +170,7 @@ const App: React.FC = () => {
     const startCell = { rowIndex: rIdx, colIndex: cIdx, value: formatJodiVal(value) };
     setDragStartCell(startCell);
     setSelectedCells([startCell]);
+    setActiveResultCell(null); // Reset result click
   };
 
   const handleMoveSelection = (rIdx: number, cIdx: number): void => {
@@ -186,8 +178,6 @@ const App: React.FC = () => {
 
     const minRow = Math.min(dragStartCell.rowIndex, rIdx);
     const maxRow = Math.max(dragStartCell.rowIndex, rIdx);
-    if (maxRow - minRow + 1 > 30) return;
-
     const minCol = Math.min(dragStartCell.colIndex, cIdx);
     const maxCol = Math.max(dragStartCell.colIndex, cIdx);
 
@@ -205,21 +195,6 @@ const App: React.FC = () => {
     setIsSelecting(false);
   };
 
-  const handleTouchMove = (e: React.TouchEvent): void => {
-    if (!isSelecting) return;
-    const touch = e.touches[0];
-    const targetElement = document.elementFromPoint(touch.clientX, touch.clientY);
-    if (targetElement) {
-      const rIdxStr = targetElement.getAttribute('data-row');
-      const cIdxStr = targetElement.getAttribute('data-col');
-      if (rIdxStr !== null && cIdxStr !== null) {
-        const rIdx = parseInt(rIdxStr, 10);
-        const cIdx = parseInt(cIdxStr, 10);
-        handleMoveSelection(rIdx, cIdx);
-      }
-    }
-  };
-
   const runPatternSearch = (): void => {
     if (selectedCells.length === 0 || fullSheetData.length === 0) return;
 
@@ -233,10 +208,9 @@ const App: React.FC = () => {
     const matches: MatchResult[] = [];
 
     for (let i = 0; i <= fullSheetData.length - numRows; i++) {
-      if (i === minRow) continue; // Skip exact same current selection location
+      if (i === minRow) continue;
 
       let matchCount = 0;
-      const matchedCellCoords: string[] = [];
 
       for (const cell of selectedCells) {
         if (!cell.value || cell.value.includes('*') || cell.value.includes('✪')) continue;
@@ -244,18 +218,12 @@ const App: React.FC = () => {
         const offsetRow = cell.rowIndex - minRow;
         const targetHistJodi = formatJodiVal(fullSheetData[i + offsetRow]?.[cell.colIndex] || "");
 
-        let isCellMatched = false;
         if (strictMode) {
-          if (cell.value === targetHistJodi) isCellMatched = true;
+          if (cell.value === targetHistJodi) matchCount++;
         } else {
           if (checkSameFamily(cell.value, targetHistJodi) || cell.value === targetHistJodi) {
-            isCellMatched = true;
+            matchCount++;
           }
-        }
-
-        if (isCellMatched) {
-          matchCount++;
-          matchedCellCoords.push(`${offsetRow}_${cell.colIndex}`);
         }
       }
 
@@ -273,8 +241,7 @@ const App: React.FC = () => {
           startRowIndex: i, 
           matchCount,
           matchedPatternLength: numRows,
-          pastRowsCount: actualPastCount,
-          matchedCellCoords
+          pastRowsCount: actualPastCount
         });
       }
     }
@@ -282,28 +249,36 @@ const App: React.FC = () => {
     matches.sort((a, b) => b.matchCount - a.matchCount);
     setMatchedSets(matches);
     setCurrentMatchIndex(0);
+    setActiveResultCell(null);
   };
 
   const handleReset = (): void => {
     setSelectedCells([]);
     setMatchedSets([]);
     setCurrentMatchIndex(0);
+    setActiveResultCell(null);
+  };
+
+  // RESULT CELL CLICK HANDLER
+  const handleResultCellClick = (blockIdx: number, colIndex: number, value: string) => {
+    if (colIndex === 0 || !value || value.includes('*')) return;
+    setActiveResultCell({ blockIdx, colIndex, value });
   };
 
   if (!isLoggedIn) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', backgroundColor: '#2c3e50' }}>
-        <form onSubmit={handleLoginSubmit} style={{ background: '#fff', padding: '30px', borderRadius: '8px', boxShadow: '0 4px 10px rgba(0,0,0,0.3)', textAlign: 'center', width: '280px' }}>
-          <h2 style={{ margin: '0 0 15px 0', fontSize: '18px', color: '#2c3e50' }}>Matka App Login</h2>
+        <form onSubmit={handleLoginSubmit} style={{ background: '#fff', padding: '30px', borderRadius: '8px', width: '280px', textAlign: 'center' }}>
+          <h3>Matka App Login</h3>
           <input 
             type="password" 
             placeholder="Enter Security PIN" 
             value={loginPin} 
             onChange={(e) => setLoginPin(e.target.value)}
-            style={{ width: '100%', padding: '10px', fontSize: '14px', marginBottom: '10px', borderRadius: '4px', border: '1px solid #ccc', boxSizing: 'border-box' }}
+            style={{ width: '100%', padding: '10px', marginBottom: '10px' }}
           />
-          {loginError && <p style={{ color: 'red', fontSize: '12px', margin: '0 0 10px 0' }}>{loginError}</p>}
-          <button type="submit" style={{ width: '100%', padding: '10px', backgroundColor: '#27ae60', color: '#fff', fontWeight: 'bold', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
+          {loginError && <p style={{ color: 'red', fontSize: '12px' }}>{loginError}</p>}
+          <button type="submit" style={{ width: '100%', padding: '10px', backgroundColor: '#27ae60', color: '#fff', border: 'none' }}>
             Login
           </button>
         </form>
@@ -311,88 +286,60 @@ const App: React.FC = () => {
     );
   }
 
-  if (loading) {
-    return <div style={{ textAlign: 'center', padding: '50px', fontWeight: 'bold' }}>Loading Matka Data...</div>;
-  }
+  if (loading) return <div style={{ textAlign: 'center', padding: '50px' }}>Loading Data...</div>;
 
   const currentMatch = matchedSets[currentMatchIndex] || null;
-  const selectedMinRow = selectedCells.length > 0 ? Math.min(...selectedCells.map((c) => c.rowIndex)) : 0;
+
+  // RESULT SHEET HIGHLIGHT POSITIONS MATRIX
+  const highlightedResultPositions: { blockIdx: number; colIndex: number }[] = [];
+
+  if (currentMatch && activeResultCell) {
+    currentMatch.matchBlock.forEach((week, bIdx) => {
+      week.forEach((rawVal, cIdx) => {
+        if (cIdx > 0) {
+          const val = formatJodiVal(rawVal);
+          if (checkSameFamily(val, activeResultCell.value) || val === activeResultCell.value) {
+            highlightedResultPositions.push({ blockIdx: bIdx, colIndex: cIdx });
+          }
+        }
+      });
+    });
+  }
 
   return (
     <div className="app-wrapper">
       <header className="app-header" style={{ padding: '8px', background: '#2c3e50', color: '#fff' }}>
-        <h2 style={{ margin: '0 0 6px 0', fontSize: '16px', textAlign: 'center' }}>
-          Matka Pattern Finder App
-        </h2>
-
+        <h2 style={{ margin: '0 0 6px 0', fontSize: '16px', textAlign: 'center' }}>Matka Pattern Finder App</h2>
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
           <label style={{ fontSize: '12px' }}>
             किमान जुळणाऱ्या जोड्या:
-            <select 
-              value={minMatchCount} 
-              onChange={(e) => setMinMatchCount(parseInt(e.target.value, 10))}
-              style={{ marginLeft: '4px', padding: '2px', fontSize: '12px' }}
-            >
-              <option value={1}>1+</option>
-              <option value={2}>2+</option>
-              <option value={3}>3+</option>
-              <option value={4}>4+</option>
-              <option value={5}>5+</option>
-              <option value={6}>6+</option>
-              <option value={7}>7+</option>
+            <select value={minMatchCount} onChange={(e) => setMinMatchCount(parseInt(e.target.value, 10))}>
+              {[1, 2, 3, 4, 5, 6, 7].map(n => <option key={n} value={n}>{n}+</option>)}
             </select>
           </label>
 
-          <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#ffeb3b', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <input 
-              type="checkbox" 
-              checked={strictMode} 
-              onChange={(e) => setStrictMode(e.target.checked)} 
-            />
+          <label style={{ fontSize: '12px', color: '#ffeb3b', fontWeight: 'bold' }}>
+            <input type="checkbox" checked={strictMode} onChange={(e) => setStrictMode(e.target.checked)} />
             Strict Exact Match Mode
           </label>
 
-          <button 
-            onClick={runPatternSearch} 
-            disabled={selectedCells.length === 0}
-            style={{ padding: '4px 10px', fontWeight: 'bold', backgroundColor: '#27ae60', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer', fontSize: '12px' }}
-          >
+          <button onClick={runPatternSearch} disabled={selectedCells.length === 0} style={{ padding: '4px 10px', backgroundColor: '#27ae60', color: '#fff', border: 'none' }}>
             Find Pattern
           </button>
 
-          <button 
-            onClick={handleReset}
-            style={{ padding: '4px 10px', fontWeight: 'bold', backgroundColor: '#e74c3c', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer', fontSize: '12px' }}
-          >
+          <button onClick={handleReset} style={{ padding: '4px 10px', backgroundColor: '#e74c3c', color: '#fff', border: 'none' }}>
             Reset
           </button>
 
-          <button 
-            onClick={scrollToBottom}
-            style={{ padding: '4px 10px', fontWeight: 'bold', backgroundColor: '#3498db', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer', fontSize: '12px' }}
-          >
+          <button onClick={scrollToBottom} style={{ padding: '4px 10px', backgroundColor: '#3498db', color: '#fff', border: 'none' }}>
             Go To Bottom ⬇
           </button>
 
           {matchedSets.length > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: '6px', background: '#34495e', padding: '3px 6px', borderRadius: '3px' }}>
-              <button 
-                onClick={() => setCurrentMatchIndex((prev) => Math.max(0, prev - 1))}
-                disabled={currentMatchIndex === 0}
-                style={{ cursor: 'pointer', fontSize: '11px' }}
-              >
-                ◀ Prev
-              </button>
-              <span style={{ fontSize: '12px', fontWeight: 'bold' }}>
-                Match {currentMatchIndex + 1} of {matchedSets.length}
-              </span>
-              <button 
-                onClick={() => setCurrentMatchIndex((prev) => Math.min(matchedSets.length - 1, prev + 1))}
-                disabled={currentMatchIndex === matchedSets.length - 1}
-                style={{ cursor: 'pointer', fontSize: '11px' }}
-              >
-                Next ▶
-              </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#34495e', padding: '3px 6px' }}>
+              <button onClick={() => setCurrentMatchIndex((prev) => Math.max(0, prev - 1))} disabled={currentMatchIndex === 0}>◀ Prev</button>
+              <span style={{ fontSize: '12px' }}>Match {currentMatchIndex + 1} of {matchedSets.length}</span>
+              <button onClick={() => setCurrentMatchIndex((prev) => Math.min(matchedSets.length - 1, prev + 1))} disabled={currentMatchIndex === matchedSets.length - 1}>Next ▶</button>
             </div>
           )}
         </div>
@@ -401,21 +348,15 @@ const App: React.FC = () => {
       <div className="side-by-side-container" style={{ display: 'flex', gap: '10px', padding: '8px' }}>
         
         {/* LEFT PANEL: FULL SHEET HISTORY */}
-        <div className="panel-container scrollable-panel" ref={leftPanelRef} style={{ flex: 1, overflowX: 'auto', maxHeight: '80vh', overflowY: 'auto' }}>
-          <h3 className="panel-header" style={{ background: '#34495e', color: '#fff', padding: '4px', margin: 0, fontSize: '13px', position: 'sticky', top: 0, zIndex: 10 }}>
+        <div className="panel-container" style={{ flex: 1, overflowX: 'auto', maxHeight: '80vh', overflowY: 'auto' }}>
+          <h3 style={{ background: '#34495e', color: '#fff', padding: '4px', margin: 0, fontSize: '13px', position: 'sticky', top: 0, zIndex: 10 }}>
             FULL SHEET HISTORY
           </h3>
-          <table 
-            className="matka-pdf-table" 
-            onMouseUp={handleEndSelection} 
-            onTouchEnd={handleEndSelection}
-            onTouchMove={handleTouchMove}
-            style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}
-          >
+          <table className="matka-pdf-table" onMouseUp={handleEndSelection} style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
             <thead style={{ position: 'sticky', top: '25px', zIndex: 9, background: '#fff' }}>
               <tr>
                 {DAYS.map((day, idx) => (
-                  <th key={day} style={{ width: idx === 0 ? '70px' : 'auto', padding: '3px 1px', fontSize: '11px' }}>{day}</th>
+                  <th key={day} style={{ width: idx === 0 ? '70px' : 'auto', fontSize: '11px' }}>{day}</th>
                 ))}
               </tr>
             </thead>
@@ -427,75 +368,51 @@ const App: React.FC = () => {
                   <tr key={`full-row-${rIdx}`} ref={isLastRow ? lastRowRef : null}>
                     {week.map((rawVal, cIdx) => {
                       if (cIdx === 0) {
-                        return (
-                          <td 
-                            key={`full-date-${rIdx}`} 
-                            className="pdf-date-cell" 
-                            style={{ padding: '2px 1px', fontSize: '10px', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}
-                          >
-                            {formatDateString(rawVal)}
-                          </td>
-                        );
+                        return <td key={`full-date-${rIdx}`} style={{ fontSize: '10px', padding: '2px' }}>{formatDateString(rawVal)}</td>;
                       }
 
                       const formattedVal = formatJodiVal(rawVal);
                       const isSelected = selectedCells.some((cell) => cell.rowIndex === rIdx && cell.colIndex === cIdx);
 
-                      let isMatchedInOriginal = false;
-                      let isExactJodiMatch = false;
+                      // MAIN SHEET HIGHLIGHT LOGIC (Position Match + Family Match with Clicked Result Cell)
+                      let isMainHighlighted = false;
 
-                      if (currentMatch) {
-                        const relRow = rIdx - selectedMinRow;
-                        const coordKey = `${relRow}_${cIdx}`;
+                      if (currentMatch && activeResultCell && highlightedResultPositions.length > 0) {
+                        const matchStart = currentMatch.startRowIndex;
+                        const pastOffset = currentMatch.pastRowsCount;
 
-                        if (isSelected && currentMatch.matchedCellCoords.includes(coordKey)) {
-                          isMatchedInOriginal = true;
-                          const targetHistJodi = formatJodiVal(fullSheetData[currentMatch.startRowIndex + relRow]?.[cIdx] || "");
-                          if (formattedVal === targetHistJodi) {
-                            isExactJodiMatch = true;
+                        highlightedResultPositions.forEach((pos) => {
+                          const correspondingMainRowIndex = matchStart - pastOffset + pos.blockIdx;
+                          
+                          if (rIdx === correspondingMainRowIndex && cIdx === pos.colIndex) {
+                            if (checkSameFamily(formattedVal, activeResultCell.value) || formattedVal === activeResultCell.value) {
+                              isMainHighlighted = true;
+                            }
                           }
-                        }
+                        });
                       }
 
-                      const famColor = getFamilyColor(formattedVal);
-                      const isRed = isRedJodi(formattedVal);
                       const { diff, total } = calculateMetrics(formattedVal);
-
-                      let cellBg = '#ffffff';
-                      if (matchedSets.length === 0 && isSelected) {
-                        cellBg = '#a0c4ff'; 
-                      } else if (isMatchedInOriginal) {
-                        cellBg = famColor;
-                      }
 
                       return (
                         <td
                           key={`full-cell-${rIdx}-${cIdx}`}
-                          className="pdf-jodi-cell"
-                          data-row={rIdx}
-                          data-col={cIdx}
                           style={{ 
-                            backgroundColor: cellBg, 
-                            border: isExactJodiMatch ? '2px solid #b71c1c' : isMatchedInOriginal ? '2px solid #27ae60' : isSelected ? '1px solid #3498db' : '1px solid #ccc',
+                            backgroundColor: isMainHighlighted ? '#27ae60' : isSelected ? '#a0c4ff' : '#ffffff', 
+                            color: isMainHighlighted ? '#ffffff' : '#000000',
+                            border: isMainHighlighted ? '2px solid #1b5e20' : '1px solid #ccc',
                             fontWeight: 'bold',
-                            padding: '2px 0px',
-                            cursor: 'pointer' 
+                            padding: '2px 0',
+                            textAlign: 'center',
+                            cursor: 'pointer'
                           }}
                           onMouseDown={() => handleStartSelection(rIdx, cIdx, formattedVal)}
                           onMouseEnter={() => handleMoveSelection(rIdx, cIdx)}
-                          onTouchStart={() => handleStartSelection(rIdx, cIdx, formattedVal)}
                         >
-                          <div data-row={rIdx} data-col={cIdx} className={`jodi-val ${isRed ? 'red-text' : ''}`} style={{ fontSize: '14px', fontWeight: 'bold', textAlign: 'center', lineHeight: '1.1' }}>
-                            {formattedVal || '**'}
-                            {isExactJodiMatch && <span style={{ color: '#b71c1c', fontSize: '10px', marginLeft: '1px' }}>★</span>}
-                          </div>
-                          <div data-row={rIdx} data-col={cIdx} className="metrics-row" style={{ fontSize: '9px', display: 'flex', justifyContent: 'space-between', padding: '0 2px', marginTop: '1px' }}>
-                            <span className="diff-val" style={{ color: '#8b0000', fontWeight: 'bold' }}>
-                              {diff || ''}
-                            </span>
-                            <span className="total-val" style={{ color: '#006400', fontWeight: 'bold' }}>
-                              {total || ''}
-                            </span>
+                          <div style={{ fontSize: '14px' }}>{formattedVal || '**'}</div>
+                          <div style={{ fontSize: '9px', display: 'flex', justifyContent: 'space-between', padding: '0 2px' }}>
+                            <span style={{ color: isMainHighlighted ? '#fff' : '#8b0000' }}>{diff || ''}</span>
+                            <span style={{ color: isMainHighlighted ? '#fff' : '#006400' }}>{total || ''}</span>
                           </div>
                         </td>
                       );
@@ -507,124 +424,72 @@ const App: React.FC = () => {
           </table>
         </div>
 
-        {/* RIGHT PANEL: MATCHED RESULT WITH PAST & FUTURE ROWS */}
+        {/* RIGHT PANEL: MATCHED RESULT HISTORY */}
         <div className="matches-wrapper" style={{ flex: 1, overflowX: 'auto', maxHeight: '80vh', overflowY: 'auto' }}>
           {currentMatch ? (
             <div className="panel-container">
-              <h3 className="panel-header" style={{ background: '#27ae60', color: '#fff', padding: '4px', margin: 0, fontSize: '13px', position: 'sticky', top: 0, zIndex: 10 }}>
+              <h3 style={{ background: '#27ae60', color: '#fff', padding: '4px', margin: 0, fontSize: '13px', position: 'sticky', top: 0, zIndex: 10 }}>
                 MATCHED SET {currentMatchIndex + 1} OF {matchedSets.length} ({currentMatch.matchCount} MATCHED) - DATE: {currentMatch.startDate}
               </h3>
               <table className="matka-pdf-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
                 <thead style={{ position: 'sticky', top: '25px', zIndex: 9, background: '#fff' }}>
                   <tr>
                     {DAYS.map((day, idx) => (
-                      <th key={day} style={{ width: idx === 0 ? '70px' : 'auto', padding: '3px 1px', fontSize: '11px' }}>{day}</th>
+                      <th key={day} style={{ width: idx === 0 ? '70px' : 'auto', fontSize: '11px' }}>{day}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {currentMatch.matchBlock.map((week, blockIdx) => {
-                    const pastCount = currentMatch.pastRowsCount;
-                    const patternLen = currentMatch.matchedPatternLength;
+                  {currentMatch.matchBlock.map((week, blockIdx) => (
+                    <tr key={`match-row-${blockIdx}`}>
+                      {week.map((rawVal, cIdx) => {
+                        if (cIdx === 0) {
+                          return <td key={`match-date-${blockIdx}`} style={{ fontSize: '10px', padding: '2px' }}>{formatDateString(rawVal)}</td>;
+                        }
 
-                    const isPastRow = blockIdx < pastCount;
-                    const isPatternRow = blockIdx >= pastCount && blockIdx < pastCount + patternLen;
-                    const isFutureRow = blockIdx >= pastCount + patternLen;
+                        const formattedVal = formatJodiVal(rawVal);
 
-                    const patternRowIndex = blockIdx - pastCount;
-
-                    return (
-                      <tr 
-                        key={`match-row-${blockIdx}`}
-                        style={{ 
-                          backgroundColor: isPastRow ? '#eef7ff' : isFutureRow ? '#fcf8e3' : 'transparent' 
-                        }}
-                      >
-                        {week.map((rawVal, cIdx) => {
-                          if (cIdx === 0) {
-                            return (
-                              <td 
-                                key={`match-date-${blockIdx}`} 
-                                className="pdf-date-cell" 
-                                style={{ 
-                                  padding: '2px 1px', 
-                                  fontSize: '10px', 
-                                  whiteSpace: 'nowrap', 
-                                  textOverflow: 'ellipsis', 
-                                  overflow: 'hidden',
-                                  fontWeight: (!isPatternRow) ? 'bold' : 'normal',
-                                  color: isPastRow ? '#2980b9' : isFutureRow ? '#d35400' : 'inherit'
-                                }}
-                              >
-                                {formatDateString(rawVal)} 
-                                {isPastRow && blockIdx === pastCount - 1 && " ⬆"}
-                                {isFutureRow && blockIdx === pastCount + patternLen && " ⬇"}
-                              </td>
-                            );
+                        // RESULT SHEET HIGHLIGHT LOGIC
+                        let isResultHighlighted = false;
+                        if (activeResultCell) {
+                          if (checkSameFamily(formattedVal, activeResultCell.value) || formattedVal === activeResultCell.value) {
+                            isResultHighlighted = true;
                           }
+                        }
 
-                          const formattedVal = formatJodiVal(rawVal);
-                          let isMatch = false;
-                          let isExactJodiMatch = false;
+                        const isClicked = activeResultCell?.blockIdx === blockIdx && activeResultCell?.colIndex === cIdx;
+                        const { diff, total } = calculateMetrics(formattedVal);
 
-                          if (isPatternRow) {
-                            const coordKey = `${patternRowIndex}_${cIdx}`;
-                            if (currentMatch.matchedCellCoords.includes(coordKey)) {
-                              isMatch = true;
-                              const origCell = selectedCells.find(c => (c.rowIndex - selectedMinRow) === patternRowIndex && c.colIndex === cIdx);
-                              if (origCell && origCell.value === formattedVal) {
-                                isExactJodiMatch = true;
-                              }
-                            }
-                          }
-
-                          const famColor = getFamilyColor(formattedVal);
-                          const isRed = isRedJodi(formattedVal);
-                          const { diff, total } = calculateMetrics(formattedVal);
-
-                          let cellBg = '#ffffff';
-                          if (isMatch) {
-                            cellBg = famColor;
-                          }
-
-                          return (
-                            <td
-                              key={`match-cell-${blockIdx}-${cIdx}`}
-                              className="pdf-jodi-cell"
-                              style={{ 
-                                backgroundColor: cellBg, 
-                                border: isExactJodiMatch ? '2px solid #b71c1c' : isMatch ? '2px solid #27ae60' : '1px solid #ccc',
-                                fontWeight: 'bold',
-                                padding: '2px 0px'
-                              }}
-                            >
-                              <div className={`jodi-val ${isRed ? 'red-text' : ''}`} style={{ fontSize: '14px', fontWeight: 'bold', textAlign: 'center', lineHeight: '1.1' }}>
-                                {formattedVal || '**'}
-                                {isExactJodiMatch && <span style={{ color: '#b71c1c', fontSize: '10px', marginLeft: '1px' }}>★</span>}
-                              </div>
-                              <div className="metrics-row" style={{ fontSize: '9px', display: 'flex', justifyContent: 'space-between', padding: '0 2px', marginTop: '1px' }}>
-                                <span className="diff-val" style={{ color: '#8b0000', fontWeight: 'bold' }}>
-                                  {diff || ''}
-                                </span>
-                                <span className="total-val" style={{ color: '#006400', fontWeight: 'bold' }}>
-                                  {total || ''}
-                                </span>
-                              </div>
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    );
-                  })}
+                        return (
+                          <td
+                            key={`match-cell-${blockIdx}-${cIdx}`}
+                            onClick={() => handleResultCellClick(blockIdx, cIdx, formattedVal)}
+                            style={{ 
+                              backgroundColor: isResultHighlighted ? '#27ae60' : '#ffffff', 
+                              color: isResultHighlighted ? '#ffffff' : '#000000',
+                              border: isClicked ? '2px solid #ffeb3b' : isResultHighlighted ? '2px solid #1b5e20' : '1px solid #ccc',
+                              fontWeight: 'bold',
+                              padding: '2px 0',
+                              textAlign: 'center',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            <div style={{ fontSize: '14px' }}>{formattedVal || '**'}</div>
+                            <div style={{ fontSize: '9px', display: 'flex', justifyContent: 'space-between', padding: '0 2px' }}>
+                              <span style={{ color: isResultHighlighted ? '#fff' : '#8b0000' }}>{diff || ''}</span>
+                              <span style={{ color: isResultHighlighted ? '#fff' : '#006400' }}>{total || ''}</span>
+                            </div>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
           ) : (
-            <div className="panel-container placeholder-panel" style={{ padding: '20px', textAlign: 'center', background: '#f9f9f9', border: '1px dashed #ccc' }}>
-              <h3 className="panel-header" style={{ color: '#777', fontSize: '13px' }}>MATCHED HISTORY RESULTS</h3>
-              <p className="placeholder-text" style={{ color: '#666', fontSize: '12px' }}>
-                डाव्या बाजूच्या Sheet वर drag/touch करून सिलेक्ट करा आणि **Find Pattern** वर क्लिक करा.
-              </p>
+            <div style={{ padding: '20px', textAlign: 'center', background: '#f9f9f9', border: '1px dashed #ccc' }}>
+              <p>डाव्या बाजूच्या Sheet वर सिलेक्ट करा आणि <b>Find Pattern</b> वर क्लिक करा.</p>
             </div>
           )}
         </div>
