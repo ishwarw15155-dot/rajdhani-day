@@ -38,14 +38,6 @@ const checkSameFamily = (jodi1: string, jodi2: string): boolean => {
   return false;
 };
 
-const getFamilyMembers = (jodiStr: string): string[] => {
-  if (!jodiStr || jodiStr.length < 2 || jodiStr.includes('*') || jodiStr.includes('✪')) return [jodiStr];
-  for (const fam of Object.values(JODI_FAMILIES)) {
-    if (fam.members.includes(jodiStr)) return fam.members;
-  }
-  return [jodiStr];
-};
-
 const isRedJodi = (jodiStr: string): boolean => {
   if (!jodiStr || jodiStr.length < 2) return false;
   const redFamilies = ["05", "16", "27", "38", "49"];
@@ -124,7 +116,7 @@ const App: React.FC = () => {
   const [minMatchCount, setMinMatchCount] = useState<number>(2);
   const [strictMode, setStrictMode] = useState<boolean>(false);
 
-  // Clicked offset cell for synced cross-highlighting
+  // Clicked offset cell in Result Sheet
   const [clickedOffsetCell, setClickedOffsetCell] = useState<{ blockIdx: number; cIdx: number } | null>(null);
 
   const leftPanelRef = useRef<HTMLDivElement | null>(null);
@@ -361,24 +353,48 @@ const App: React.FC = () => {
   const currentMatch = matchedSets[currentMatchIndex] || null;
   const selectedMinRow = selectedCells.length > 0 ? Math.min(...selectedCells.map((c) => c.rowIndex)) : 0;
 
-  // Sync family search values if result cell clicked
-  let resultFamilyMembers: string[] = [];
-  let mainFamilyMembers: string[] = [];
-
-  if (currentMatch && clickedOffsetCell) {
-    const { blockIdx, cIdx } = clickedOffsetCell;
-    const resVal = formatJodiVal(currentMatch.matchBlock[blockIdx]?.[cIdx] || "");
-    resultFamilyMembers = getFamilyMembers(resVal);
-
-    // Calculate corresponding offset in Main Sheet
-    const offsetFromMatchStart = blockIdx - currentMatch.pastRowsCount;
-    const mainTargetRowIndex = selectedMinRow + offsetFromMatchStart;
+  // Helper: Relative distance match for Result Sheet cell
+  const isResultPosMatch = (targetBlockIdx: number, targetColIdx: number, val: string): boolean => {
+    if (!clickedOffsetCell || !currentMatch || !val) return false;
     
-    if (mainTargetRowIndex >= 0 && mainTargetRowIndex < fullSheetData.length) {
-      const mainVal = formatJodiVal(fullSheetData[mainTargetRowIndex]?.[cIdx] || "");
-      mainFamilyMembers = getFamilyMembers(mainVal);
+    // Distance from clicked cell in Result Sheet
+    const rowDiff = targetBlockIdx - clickedOffsetCell.blockIdx;
+    const colDiff = targetColIdx - clickedOffsetCell.cIdx;
+
+    // Check corresponding cell in Main Sheet at the exact same distance relative to clicked point
+    const clickedMainRow = selectedMinRow + (clickedOffsetCell.blockIdx - currentMatch.pastRowsCount);
+    const targetMainRow = clickedMainRow + rowDiff;
+    const targetMainCol = clickedOffsetCell.cIdx + colDiff;
+
+    if (targetMainRow >= 0 && targetMainRow < fullSheetData.length && targetMainCol >= 1 && targetMainCol < 7) {
+      const mainValAtDist = formatJodiVal(fullSheetData[targetMainRow]?.[targetMainCol] || "");
+      // Highlight ONLY if both cells at the same relative distance belong to the same family
+      return checkSameFamily(val, mainValAtDist);
     }
-  }
+    return false;
+  };
+
+  // Helper: Relative distance match for Main Sheet cell
+  const isMainPosMatch = (targetRowIdx: number, targetColIdx: number, val: string): boolean => {
+    if (!clickedOffsetCell || !currentMatch || !val) return false;
+
+    const clickedMainRow = selectedMinRow + (clickedOffsetCell.blockIdx - currentMatch.pastRowsCount);
+    
+    // Distance from clicked point in Main Sheet
+    const rowDiff = targetRowIdx - clickedMainRow;
+    const colDiff = targetColIdx - clickedOffsetCell.cIdx;
+
+    // Check corresponding cell in Result Sheet at the exact same distance
+    const targetResBlock = clickedOffsetCell.blockIdx + rowDiff;
+    const targetResCol = clickedOffsetCell.cIdx + colDiff;
+
+    if (targetResBlock >= 0 && targetResBlock < currentMatch.matchBlock.length && targetResCol >= 1 && targetResCol < 7) {
+      const resValAtDist = formatJodiVal(currentMatch.matchBlock[targetResBlock]?.[targetResCol] || "");
+      // Highlight ONLY if both cells at the same relative distance belong to the same family
+      return checkSameFamily(val, resValAtDist);
+    }
+    return false;
+  };
 
   return (
     <div className="app-wrapper">
@@ -541,7 +557,7 @@ const App: React.FC = () => {
                       const isRed = isRedJodi(formattedVal);
                       const { diff, total } = calculateMetrics(formattedVal);
 
-                      const isSyncMainFamily = mainFamilyMembers.length > 0 && mainFamilyMembers.includes(formattedVal);
+                      const isSyncMainFamily = isMainPosMatch(rIdx, cIdx, formattedVal);
 
                       let cellBg = '#ffffff';
                       if (isSyncMainFamily) {
@@ -686,7 +702,7 @@ const App: React.FC = () => {
                           const isRed = isRedJodi(formattedVal);
                           const { diff, total } = calculateMetrics(formattedVal);
 
-                          const isSyncResultFamily = resultFamilyMembers.length > 0 && resultFamilyMembers.includes(formattedVal);
+                          const isSyncResultFamily = isResultPosMatch(blockIdx, cIdx, formattedVal);
 
                           let cellBg = '#ffffff';
                           if (isSyncResultFamily) {
