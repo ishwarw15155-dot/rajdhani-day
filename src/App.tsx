@@ -116,7 +116,6 @@ const App: React.FC = () => {
   const [minMatchCount, setMinMatchCount] = useState<number>(2);
   const [strictMode, setStrictMode] = useState<boolean>(false);
 
-  // Clicked offset cell in result sheet for green highlight
   const [clickedOffsetCell, setClickedOffsetCell] = useState<{ blockIdx: number; cIdx: number } | null>(null);
 
   const leftPanelRef = useRef<HTMLDivElement | null>(null);
@@ -353,7 +352,7 @@ const App: React.FC = () => {
   const currentMatch = matchedSets[currentMatchIndex] || null;
   const selectedMinRow = selectedCells.length > 0 ? Math.min(...selectedCells.map((c) => c.rowIndex)) : 0;
 
-  // --- EXACT 1-TO-1 POSITION HIGHLIGHT LOGIC ---
+  // --- HIGHLIGHT SYNC LOGIC FIXED FOR BOTH SHEETS ---
   const resHighlightedPositions: { blockIdx: number; cIdx: number }[] = [];
   const mainHighlightedPositions: { rIdx: number; cIdx: number }[] = [];
 
@@ -363,7 +362,7 @@ const App: React.FC = () => {
     );
 
     if (clickedVal) {
-      // 1. Result Sheet मधील सर्व जुळणाऱ्या फॅमिली जोड्या शोधणे
+      // 1. Right Sheet (Matched Results) मधील जुळणाऱ्या जोड्या शोधणे
       currentMatch.matchBlock.forEach((week, bIdx) => {
         week.forEach((rawVal, cIdx) => {
           if (cIdx > 0) {
@@ -375,20 +374,20 @@ const App: React.FC = () => {
         });
       });
 
-      // 2. Main Sheet साठी Row Index Offset ची अचूक गणना करणे
-      const matchStartRow = currentMatch.startRowIndex; 
-      const pastCount = currentMatch.pastRowsCount;     
+      // 2. Left Sheet (Main Sheet) साठी - Clicked Cell चा Relative Row Offset काढून Main Sheet वरील जुळणाऱ्या जोड्या हायलाइट करणे
+      const clickedRowOffset = clickedOffsetCell.blockIdx - currentMatch.pastRowsCount;
+      const targetMainRowForClicked = currentMatch.startRowIndex + clickedRowOffset;
 
-      resHighlightedPositions.forEach((pos) => {
-        const targetMainRow = matchStartRow - pastCount + pos.blockIdx;
+      // Original Selected Rows (Left Panel) वरील जुळणारे ठिकाण
+      const targetSelRow = selectedMinRow + clickedRowOffset;
+      if (targetSelRow >= 0 && targetSelRow < fullSheetData.length) {
+        mainHighlightedPositions.push({ rIdx: targetSelRow, cIdx: clickedOffsetCell.cIdx });
+      }
 
-        if (targetMainRow >= 0 && targetMainRow < fullSheetData.length) {
-          mainHighlightedPositions.push({
-            rIdx: targetMainRow,
-            cIdx: pos.cIdx
-          });
-        }
-      });
+      // Matched Row (Left Panel Historical Data) वरील जुळणारे ठिकाण
+      if (targetMainRowForClicked >= 0 && targetMainRowForClicked < fullSheetData.length) {
+        mainHighlightedPositions.push({ rIdx: targetMainRowForClicked, cIdx: clickedOffsetCell.cIdx });
+      }
     }
   }
 
@@ -553,22 +552,19 @@ const App: React.FC = () => {
                       const isRed = isRedJodi(formattedVal);
                       const { diff, total } = calculateMetrics(formattedVal);
 
-                      // STRICT POSITION MATCH FOR MAIN SHEET
+                      // EXACT MATCH CHECK FOR MAIN SHEET HIGHLIGHT
                       const isSyncMainFamily = mainHighlightedPositions.some(
                         (p) => p.rIdx === rIdx && p.cIdx === cIdx
                       );
 
                       let cellBg = '#ffffff';
 
-                      // Priority 1: ब्राइट ग्रीन हायलाइट (सर्वात आधी तपासणे)
                       if (clickedOffsetCell && isSyncMainFamily) {
-                        cellBg = CUSTOM_HIGHLIGHT_COLOR; // #00e676
+                        cellBg = CUSTOM_HIGHLIGHT_COLOR; // #00e676 (Bright Green)
                       } 
-                      // Priority 2: ड्रॅग करून सिलेक्ट केलेला भाग
                       else if (matchedSets.length === 0 && isSelected) {
                         cellBg = '#a0c4ff'; 
                       } 
-                      // Priority 3: पॅटर्न मॅच झालेले मूळ पेस्टल कलर्स
                       else if (isMatchedInOriginal || isRepeatMatch) {
                         cellBg = famColor;
                       }
@@ -711,18 +707,15 @@ const App: React.FC = () => {
                           const isRed = isRedJodi(formattedVal);
                           const { diff, total } = calculateMetrics(formattedVal);
 
-                          // RESULT SHEET GREEN HIGHLIGHT
                           const isSyncResultFamily = resHighlightedPositions.some(
                             (p) => p.blockIdx === blockIdx && p.cIdx === cIdx
                           );
 
                           let cellBg = '#ffffff';
 
-                          // Priority 1: ब्राइट ग्रीन हायलाइट (सर्वात आधी तपासणे)
                           if (clickedOffsetCell && isSyncResultFamily) {
                             cellBg = CUSTOM_HIGHLIGHT_COLOR; // #00e676
                           } 
-                          // Priority 2: मॅच झालेला मूळ पेस्टल कलर
                           else if (isMatch || isRepeatMatch) {
                             cellBg = famColor;
                           }
