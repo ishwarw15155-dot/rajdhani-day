@@ -101,6 +101,7 @@ interface MatchResult {
   matchCount: number;
   matchedPatternLength: number;
   pastRowsCount: number;
+  matchedCellCoords: string[]; // Track relative offsets e.g. "relRow_colIndex"
 }
 
 const App: React.FC = () => {
@@ -232,24 +233,29 @@ const App: React.FC = () => {
     const matches: MatchResult[] = [];
 
     for (let i = 0; i <= fullSheetData.length - numRows; i++) {
-      if (i === minRow) continue;
+      if (i === minRow) continue; // Skip exact same current selection location
 
       let matchCount = 0;
+      const matchedCellCoords: string[] = [];
 
       for (const cell of selectedCells) {
+        if (!cell.value || cell.value.includes('*') || cell.value.includes('✪')) continue;
+
         const offsetRow = cell.rowIndex - minRow;
         const targetHistJodi = formatJodiVal(fullSheetData[i + offsetRow]?.[cell.colIndex] || "");
 
-        if (!cell.value || cell.value.includes('*') || cell.value.includes('✪')) continue;
-
+        let isCellMatched = false;
         if (strictMode) {
-          if (cell.value === targetHistJodi) {
-            matchCount++;
-          }
+          if (cell.value === targetHistJodi) isCellMatched = true;
         } else {
           if (checkSameFamily(cell.value, targetHistJodi) || cell.value === targetHistJodi) {
-            matchCount++;
+            isCellMatched = true;
           }
+        }
+
+        if (isCellMatched) {
+          matchCount++;
+          matchedCellCoords.push(`${offsetRow}_${cell.colIndex}`);
         }
       }
 
@@ -267,7 +273,8 @@ const App: React.FC = () => {
           startRowIndex: i, 
           matchCount,
           matchedPatternLength: numRows,
-          pastRowsCount: actualPastCount
+          pastRowsCount: actualPastCount,
+          matchedCellCoords
         });
       }
     }
@@ -438,25 +445,14 @@ const App: React.FC = () => {
                       let isExactJodiMatch = false;
 
                       if (currentMatch) {
-                        const matchStart = currentMatch.startRowIndex;
-                        const selCell = selectedCells.find(c => c.rowIndex === rIdx && c.colIndex === cIdx);
+                        const relRow = rIdx - selectedMinRow;
+                        const coordKey = `${relRow}_${cIdx}`;
 
-                        if (selCell) {
-                          const offsetRow = rIdx - selectedMinRow;
-                          const targetHistJodi = formatJodiVal(fullSheetData[matchStart + offsetRow]?.[cIdx] || "");
-
-                          if (strictMode) {
-                            if (formattedVal === targetHistJodi && formattedVal !== "") {
-                              isMatchedInOriginal = true;
-                              isExactJodiMatch = true;
-                            }
-                          } else {
-                            if (checkSameFamily(formattedVal, targetHistJodi) || (formattedVal === targetHistJodi && formattedVal !== "")) {
-                              isMatchedInOriginal = true;
-                            }
-                            if (formattedVal === targetHistJodi && formattedVal !== "") {
-                              isExactJodiMatch = true;
-                            }
+                        if (isSelected && currentMatch.matchedCellCoords.includes(coordKey)) {
+                          isMatchedInOriginal = true;
+                          const targetHistJodi = formatJodiVal(fullSheetData[currentMatch.startRowIndex + relRow]?.[cIdx] || "");
+                          if (formattedVal === targetHistJodi) {
+                            isExactJodiMatch = true;
                           }
                         }
                       }
@@ -480,7 +476,7 @@ const App: React.FC = () => {
                           data-col={cIdx}
                           style={{ 
                             backgroundColor: cellBg, 
-                            border: isExactJodiMatch ? '2px solid #b71c1c' : isMatchedInOriginal ? '2px solid #27ae60' : '1px solid #ccc',
+                            border: isExactJodiMatch ? '2px solid #b71c1c' : isMatchedInOriginal ? '2px solid #27ae60' : isSelected ? '1px solid #3498db' : '1px solid #ccc',
                             fontWeight: 'bold',
                             padding: '2px 0px',
                             cursor: 'pointer' 
@@ -568,24 +564,15 @@ const App: React.FC = () => {
                           }
 
                           const formattedVal = formatJodiVal(rawVal);
-                          const targetSelectedCell = isPatternRow 
-                            ? selectedCells.find((c) => (c.rowIndex - selectedMinRow) === patternRowIndex && c.colIndex === cIdx)
-                            : null;
-
                           let isMatch = false;
                           let isExactJodiMatch = false;
 
-                          if (isPatternRow && targetSelectedCell && targetSelectedCell.value !== "") {
-                            if (strictMode) {
-                              if (formattedVal === targetSelectedCell.value) {
-                                isMatch = true;
-                                isExactJodiMatch = true;
-                              }
-                            } else {
-                              if (checkSameFamily(formattedVal, targetSelectedCell.value) || formattedVal === targetSelectedCell.value) {
-                                isMatch = true;
-                              }
-                              if (formattedVal === targetSelectedCell.value) {
+                          if (isPatternRow) {
+                            const coordKey = `${patternRowIndex}_${cIdx}`;
+                            if (currentMatch.matchedCellCoords.includes(coordKey)) {
+                              isMatch = true;
+                              const origCell = selectedCells.find(c => (c.rowIndex - selectedMinRow) === patternRowIndex && c.colIndex === cIdx);
+                              if (origCell && origCell.value === formattedVal) {
                                 isExactJodiMatch = true;
                               }
                             }
