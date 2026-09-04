@@ -373,7 +373,7 @@ const App: React.FC = () => {
         });
       });
 
-      // 2. Main Sheet: Result Sheet मध्ये हायलाइट झालेल्या जोड्यांच्या तंतोतंत एकाच (Same Position/Index) वर असणाऱ्या सेल्स हायलाइट करणे
+      // 2. Main Sheet: Result Sheet मध्ये हायलाइट झालेल्या जोड्यांच्या तंतोतंत एकाच (Same Position/Index) वर असणाऱ्या सेल्स शोधणे
       const matchStartRow = currentMatch.startRowIndex;
       const pastOffset = currentMatch.pastRowsCount;
 
@@ -556,9 +556,13 @@ const App: React.FC = () => {
                       );
 
                       let cellBg = '#ffffff';
-                      if (isSyncMainFamily) {
-                        cellBg = CUSTOM_HIGHLIGHT_COLOR; 
-                      } else if (matchedSets.length === 0 && isSelected) {
+
+                      // १. जर Result Sheet मध्ये क्लिक केले असेल आणि ही सेल त्या पोझिशनवर असेल, तर ब्राइट हिरवा हायलाइट दिसेल
+                      if (clickedOffsetCell && isSyncMainFamily) {
+                        cellBg = CUSTOM_HIGHLIGHT_COLOR; // #00e676
+                      } 
+                      // २. मूळ पॅटर्नचे पेस्टल कलर्स जसे आहेत तसे राहतील
+                      else if (matchedSets.length === 0 && isSelected) {
                         cellBg = '#a0c4ff'; 
                       } else if (isMatchedInOriginal || isRepeatMatch) {
                         cellBg = famColor;
@@ -572,7 +576,7 @@ const App: React.FC = () => {
                           data-col={cIdx}
                           style={{ 
                             backgroundColor: cellBg, 
-                            border: isSyncMainFamily ? '2px solid #00c853' : isExactJodiMatch ? '2px solid #b71c1c' : (isMatchedInOriginal || isRepeatMatch) ? '2px solid #27ae60' : '1px solid #ccc',
+                            border: isSyncMainFamily ? '3px solid #00c853' : isExactJodiMatch ? '2px solid #b71c1c' : (isMatchedInOriginal || isRepeatMatch) ? '2px solid #27ae60' : '1px solid #ccc',
                             fontWeight: 'bold',
                             padding: '2px 0px',
                             cursor: 'pointer' 
@@ -702,9 +706,13 @@ const App: React.FC = () => {
                           );
 
                           let cellBg = '#ffffff';
-                          if (isSyncResultFamily) {
-                            cellBg = CUSTOM_HIGHLIGHT_COLOR; 
-                          } else if (isMatch || isRepeatMatch) {
+
+                          // १. जर क्लिक केले असेल आणि ही सेल त्या फॅमिलीतील असेल, तर ब्राइट हिरवा हायलाइट दिसेल
+                          if (clickedOffsetCell && isSyncResultFamily) {
+                            cellBg = CUSTOM_HIGHLIGHT_COLOR; // #00e676
+                          } 
+                          // २. मूळ पॅटर्नचे पेस्टल कलर्स जसे आहेत तसे राहतील
+                          else if (isMatch || isRepeatMatch) {
                             cellBg = famColor;
                           }
 
@@ -714,7 +722,7 @@ const App: React.FC = () => {
                               className="pdf-jodi-cell"
                               style={{ 
                                 backgroundColor: cellBg, 
-                                border: isSyncResultFamily ? '2px solid #00c853' : isExactJodiMatch ? '2px solid #b71c1c' : (isMatch || isRepeatMatch) ? '2px solid #27ae60' : '1px solid #ccc',
+                                border: isSyncResultFamily ? '3px solid #00c853' : isExactJodiMatch ? '2px solid #b71c1c' : (isMatch || isRepeatMatch) ? '2px solid #27ae60' : '1px solid #ccc',
                                 fontWeight: 'bold',
                                 padding: '2px 0px',
                                 cursor: 'pointer'
