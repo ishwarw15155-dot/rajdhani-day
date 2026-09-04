@@ -116,8 +116,8 @@ const App: React.FC = () => {
   const [minMatchCount, setMinMatchCount] = useState<number>(2);
   const [strictMode, setStrictMode] = useState<boolean>(false);
 
-  // Clicked offset cell in Result Sheet
-  const [clickedOffsetCell, setClickedOffsetCell] = useState<{ blockIdx: number; cIdx: number } | null>(null);
+  // Clicked cell state in Result Sheet
+  const [clickedResultCell, setClickedResultCell] = useState<{ blockIdx: number; cIdx: number; value: string } | null>(null);
 
   const leftPanelRef = useRef<HTMLDivElement | null>(null);
   const lastRowRef = useRef<HTMLTableRowElement | null>(null);
@@ -177,7 +177,7 @@ const App: React.FC = () => {
     const startCell = { rowIndex: rIdx, colIndex: cIdx, value: formatJodiVal(value) };
     setDragStartCell(startCell);
     setSelectedCells([startCell]);
-    setClickedOffsetCell(null);
+    setClickedResultCell(null);
   };
 
   const handleMoveSelection = (rIdx: number, cIdx: number): void => {
@@ -306,22 +306,22 @@ const App: React.FC = () => {
     matches.sort((a, b) => b.matchCount - a.matchCount);
     setMatchedSets(matches);
     setCurrentMatchIndex(0);
-    setClickedOffsetCell(null);
+    setClickedResultCell(null);
   };
 
   const handleReset = (): void => {
     setSelectedCells([]);
     setMatchedSets([]);
     setCurrentMatchIndex(0);
-    setClickedOffsetCell(null);
+    setClickedResultCell(null);
   };
 
-  const handleResultCellClick = (blockIdx: number, cIdx: number) => {
-    if (cIdx === 0) return;
-    if (clickedOffsetCell && clickedOffsetCell.blockIdx === blockIdx && clickedOffsetCell.cIdx === cIdx) {
-      setClickedOffsetCell(null);
+  const handleResultCellClick = (blockIdx: number, cIdx: number, val: string) => {
+    if (cIdx === 0 || !val) return;
+    if (clickedResultCell && clickedResultCell.blockIdx === blockIdx && clickedResultCell.cIdx === cIdx) {
+      setClickedResultCell(null);
     } else {
-      setClickedOffsetCell({ blockIdx, cIdx });
+      setClickedResultCell({ blockIdx, cIdx, value: val });
     }
   };
 
@@ -353,47 +353,21 @@ const App: React.FC = () => {
   const currentMatch = matchedSets[currentMatchIndex] || null;
   const selectedMinRow = selectedCells.length > 0 ? Math.min(...selectedCells.map((c) => c.rowIndex)) : 0;
 
-  // Helper: Relative distance match for Result Sheet cell
-  const isResultPosMatch = (targetBlockIdx: number, targetColIdx: number, val: string): boolean => {
-    if (!clickedOffsetCell || !currentMatch || !val) return false;
-    
-    // Distance from clicked cell in Result Sheet
-    const rowDiff = targetBlockIdx - clickedOffsetCell.blockIdx;
-    const colDiff = targetColIdx - clickedOffsetCell.cIdx;
+  // NEW LOGIC HELPER: Highlights only if Result Cell belongs to Clicked Jodi's Family AND Main Sheet Cell at the exact same position belongs to the SAME family as this Result Cell
+  const checkStrictRelativeMatch = (resBlockIdx: number, resColIdx: number, resVal: string): boolean => {
+    if (!clickedResultCell || !currentMatch || !resVal) return false;
 
-    // Check corresponding cell in Main Sheet at the exact same distance relative to clicked point
-    const clickedMainRow = selectedMinRow + (clickedOffsetCell.blockIdx - currentMatch.pastRowsCount);
-    const targetMainRow = clickedMainRow + rowDiff;
-    const targetMainCol = clickedOffsetCell.cIdx + colDiff;
+    // Condition 1: Result Sheet cell must belong to Clicked Jodi's family
+    if (!checkSameFamily(resVal, clickedResultCell.value)) return false;
 
-    if (targetMainRow >= 0 && targetMainRow < fullSheetData.length && targetMainCol >= 1 && targetMainCol < 7) {
-      const mainValAtDist = formatJodiVal(fullSheetData[targetMainRow]?.[targetMainCol] || "");
-      // Highlight ONLY if both cells at the same relative distance belong to the same family
-      return checkSameFamily(val, mainValAtDist);
-    }
-    return false;
-  };
+    // Find equivalent Row in Main Sheet
+    const mainRowIdx = selectedMinRow + (resBlockIdx - currentMatch.pastRowsCount);
+    const mainVal = formatJodiVal(fullSheetData[mainRowIdx]?.[resColIdx] || "");
 
-  // Helper: Relative distance match for Main Sheet cell
-  const isMainPosMatch = (targetRowIdx: number, targetColIdx: number, val: string): boolean => {
-    if (!clickedOffsetCell || !currentMatch || !val) return false;
+    if (!mainVal) return false;
 
-    const clickedMainRow = selectedMinRow + (clickedOffsetCell.blockIdx - currentMatch.pastRowsCount);
-    
-    // Distance from clicked point in Main Sheet
-    const rowDiff = targetRowIdx - clickedMainRow;
-    const colDiff = targetColIdx - clickedOffsetCell.cIdx;
-
-    // Check corresponding cell in Result Sheet at the exact same distance
-    const targetResBlock = clickedOffsetCell.blockIdx + rowDiff;
-    const targetResCol = clickedOffsetCell.cIdx + colDiff;
-
-    if (targetResBlock >= 0 && targetResBlock < currentMatch.matchBlock.length && targetResCol >= 1 && targetResCol < 7) {
-      const resValAtDist = formatJodiVal(currentMatch.matchBlock[targetResBlock]?.[targetResCol] || "");
-      // Highlight ONLY if both cells at the same relative distance belong to the same family
-      return checkSameFamily(val, resValAtDist);
-    }
-    return false;
+    // Condition 2: Main Sheet cell at that position must belong to the exact SAME family as this Result Sheet cell
+    return checkSameFamily(resVal, mainVal);
   };
 
   return (
@@ -457,7 +431,7 @@ const App: React.FC = () => {
               <button 
                 onClick={() => {
                   setCurrentMatchIndex((prev) => Math.max(0, prev - 1));
-                  setClickedOffsetCell(null);
+                  setClickedResultCell(null);
                 }}
                 disabled={currentMatchIndex === 0}
                 style={{ cursor: 'pointer', fontSize: '11px' }}
@@ -470,7 +444,7 @@ const App: React.FC = () => {
               <button 
                 onClick={() => {
                   setCurrentMatchIndex((prev) => Math.min(matchedSets.length - 1, prev + 1));
-                  setClickedOffsetCell(null);
+                  setClickedResultCell(null);
                 }}
                 disabled={currentMatchIndex === matchedSets.length - 1}
                 style={{ cursor: 'pointer', fontSize: '11px' }}
@@ -557,7 +531,15 @@ const App: React.FC = () => {
                       const isRed = isRedJodi(formattedVal);
                       const { diff, total } = calculateMetrics(formattedVal);
 
-                      const isSyncMainFamily = isMainPosMatch(rIdx, cIdx, formattedVal);
+                      // Check if corresponding Result Sheet Cell matches rule
+                      let isSyncMainFamily = false;
+                      if (currentMatch && clickedResultCell) {
+                        const targetBlockIdx = (rIdx - selectedMinRow) + currentMatch.pastRowsCount;
+                        if (targetBlockIdx >= 0 && targetBlockIdx < currentMatch.matchBlock.length) {
+                          const resVal = formatJodiVal(currentMatch.matchBlock[targetBlockIdx]?.[cIdx] || "");
+                          isSyncMainFamily = checkStrictRelativeMatch(targetBlockIdx, cIdx, resVal);
+                        }
+                      }
 
                       let cellBg = '#ffffff';
                       if (isSyncMainFamily) {
@@ -702,7 +684,7 @@ const App: React.FC = () => {
                           const isRed = isRedJodi(formattedVal);
                           const { diff, total } = calculateMetrics(formattedVal);
 
-                          const isSyncResultFamily = isResultPosMatch(blockIdx, cIdx, formattedVal);
+                          const isSyncResultFamily = checkStrictRelativeMatch(blockIdx, cIdx, formattedVal);
 
                           let cellBg = '#ffffff';
                           if (isSyncResultFamily) {
@@ -722,7 +704,7 @@ const App: React.FC = () => {
                                 padding: '2px 0px',
                                 cursor: 'pointer'
                               }}
-                              onClick={() => handleResultCellClick(blockIdx, cIdx)}
+                              onClick={() => handleResultCellClick(blockIdx, cIdx, formattedVal)}
                             >
                               <div className={`jodi-val ${isRed ? 'red-text' : ''}`} style={{ fontSize: '14px', fontWeight: 'bold', textAlign: 'center', lineHeight: '1.1' }}>
                                 {formattedVal || '**'}
