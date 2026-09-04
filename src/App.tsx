@@ -362,15 +362,12 @@ const App: React.FC = () => {
   const selectedMinRow = selectedCells.length > 0 ? Math.min(...selectedCells.map((c) => c.rowIndex)) : 0;
 
   // Sync family search values if result cell clicked
-  let resultClickedJodi = "";
-  let mainCorrespondingJodi = "";
   let resultFamilyMembers: string[] = [];
   let mainFamilyMembers: string[] = [];
 
   if (currentMatch && clickedOffsetCell) {
     const { blockIdx, cIdx } = clickedOffsetCell;
     const resVal = formatJodiVal(currentMatch.matchBlock[blockIdx]?.[cIdx] || "");
-    resultClickedJodi = resVal;
     resultFamilyMembers = getFamilyMembers(resVal);
 
     // Calculate corresponding offset in Main Sheet
@@ -379,7 +376,6 @@ const App: React.FC = () => {
     
     if (mainTargetRowIndex >= 0 && mainTargetRowIndex < fullSheetData.length) {
       const mainVal = formatJodiVal(fullSheetData[mainTargetRowIndex]?.[cIdx] || "");
-      mainCorrespondingJodi = mainVal;
       mainFamilyMembers = getFamilyMembers(mainVal);
     }
   }
@@ -545,7 +541,6 @@ const App: React.FC = () => {
                       const isRed = isRedJodi(formattedVal);
                       const { diff, total } = calculateMetrics(formattedVal);
 
-                      // Check synced family highlight for Main Sheet from clicked offset
                       const isSyncMainFamily = mainFamilyMembers.length > 0 && mainFamilyMembers.includes(formattedVal);
 
                       let cellBg = '#ffffff';
@@ -691,7 +686,6 @@ const App: React.FC = () => {
                           const isRed = isRedJodi(formattedVal);
                           const { diff, total } = calculateMetrics(formattedVal);
 
-                          // Check synced family highlight for Result Sheet from clicked offset
                           const isSyncResultFamily = resultFamilyMembers.length > 0 && resultFamilyMembers.includes(formattedVal);
 
                           let cellBg = '#ffffff';
