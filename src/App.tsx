@@ -353,38 +353,41 @@ const App: React.FC = () => {
   const currentMatch = matchedSets[currentMatchIndex] || null;
   const selectedMinRow = selectedCells.length > 0 ? Math.min(...selectedCells.map((c) => c.rowIndex)) : 0;
 
-  // --- SAME POSITION GREEN HIGHLIGHTING CALCULATIONS ---
+  // --- STRICT SAME POSITION HIGHLIGHT LOGIC ---
   const resHighlightedPositions: { blockIdx: number; cIdx: number }[] = [];
   const mainHighlightedPositions: { rIdx: number; cIdx: number }[] = [];
 
   if (currentMatch && clickedOffsetCell) {
     const clickedVal = formatJodiVal(currentMatch.matchBlock[clickedOffsetCell.blockIdx]?.[clickedOffsetCell.cIdx] || "");
 
-    // 1. Collect all matching family cells inside Result Sheet
-    currentMatch.matchBlock.forEach((week, bIdx) => {
-      week.forEach((rawVal, cIdx) => {
-        if (cIdx > 0) {
-          const val = formatJodiVal(rawVal);
-          if (val && (val === clickedVal || checkSameFamily(val, clickedVal))) {
-            resHighlightedPositions.push({ blockIdx: bIdx, cIdx });
+    if (clickedVal) {
+      // 1. Result Sheet: Highlight all cells that belong to clicked cell's family
+      currentMatch.matchBlock.forEach((week, bIdx) => {
+        week.forEach((rawVal, cIdx) => {
+          if (cIdx > 0) {
+            const val = formatJodiVal(rawVal);
+            if (val && (val === clickedVal || checkSameFamily(val, clickedVal))) {
+              resHighlightedPositions.push({ blockIdx: bIdx, cIdx });
+            }
           }
+        });
+      });
+
+      // 2. Main Sheet: Highlight ONLY the cells at the EXACT SAME POSITION (index for index)
+      const matchStartRow = currentMatch.startRowIndex;
+      const pastOffset = currentMatch.pastRowsCount;
+
+      resHighlightedPositions.forEach((pos) => {
+        const correspondingMainRowIndex = matchStartRow - pastOffset + pos.blockIdx;
+        if (correspondingMainRowIndex >= 0 && correspondingMainRowIndex < fullSheetData.length) {
+          // Direct 1-to-1 position mapping without checking family match on Main Sheet
+          mainHighlightedPositions.push({
+            rIdx: correspondingMainRowIndex,
+            cIdx: pos.cIdx
+          });
         }
       });
-    });
-
-    // 2. Map EXACT SAME POSITION cells to Full Sheet History
-    const matchStartRow = currentMatch.startRowIndex;
-    const pastOffset = currentMatch.pastRowsCount;
-
-    resHighlightedPositions.forEach((pos) => {
-      const correspondingMainRowIndex = matchStartRow - pastOffset + pos.blockIdx;
-      if (correspondingMainRowIndex >= 0 && correspondingMainRowIndex < fullSheetData.length) {
-        mainHighlightedPositions.push({
-          rIdx: correspondingMainRowIndex,
-          cIdx: pos.cIdx
-        });
-      }
-    });
+    }
   }
 
   return (
@@ -548,7 +551,7 @@ const App: React.FC = () => {
                       const isRed = isRedJodi(formattedVal);
                       const { diff, total } = calculateMetrics(formattedVal);
 
-                      // STRICT SAME POSITION HIGHLIGHT
+                      // EXACT POSITION HIGHLIGHT IN MAIN SHEET
                       const isSyncMainFamily = mainHighlightedPositions.some(
                         (p) => p.rIdx === rIdx && p.cIdx === cIdx
                       );
@@ -694,7 +697,7 @@ const App: React.FC = () => {
                           const isRed = isRedJodi(formattedVal);
                           const { diff, total } = calculateMetrics(formattedVal);
 
-                          // RESULT SHEET GREEN HIGHLIGHT
+                          // RESULT SHEET HIGHLIGHT
                           const isSyncResultFamily = resHighlightedPositions.some(
                             (p) => p.blockIdx === blockIdx && p.cIdx === cIdx
                           );
