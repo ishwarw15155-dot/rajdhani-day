@@ -353,43 +353,45 @@ const App: React.FC = () => {
   const currentMatch = matchedSets[currentMatchIndex] || null;
   const selectedMinRow = selectedCells.length > 0 ? Math.min(...selectedCells.map((c) => c.rowIndex)) : 0;
 
-  // --- EXACT 1-TO-1 POSITION HIGHLIGHT LOGIC ---
-  const resHighlightedPositions: { blockIdx: number; cIdx: number }[] = [];
-  const mainHighlightedPositions: { rIdx: number; cIdx: number }[] = [];
+ // --- EXACT 1-TO-1 POSITION HIGHLIGHT LOGIC ---
+const resHighlightedPositions: { blockIdx: number; cIdx: number }[] = [];
+const mainHighlightedPositions: { rIdx: number; cIdx: number }[] = [];
 
-  if (currentMatch && clickedOffsetCell) {
-    const clickedVal = formatJodiVal(
-      currentMatch.matchBlock[clickedOffsetCell.blockIdx]?.[clickedOffsetCell.cIdx] || ""
-    );
+if (currentMatch && clickedOffsetCell) {
+  const clickedVal = formatJodiVal(
+    currentMatch.matchBlock[clickedOffsetCell.blockIdx]?.[clickedOffsetCell.cIdx] || ""
+  );
 
-    if (clickedVal) {
-      // 1. Result Sheet मध्ये क्लिक केलेल्या फॅमिलीतील सर्व जोड्या गोळा करणे
-      currentMatch.matchBlock.forEach((week, bIdx) => {
-        week.forEach((rawVal, cIdx) => {
-          if (cIdx > 0) {
-            const val = formatJodiVal(rawVal);
-            if (val && (val === clickedVal || checkSameFamily(val, clickedVal))) {
-              resHighlightedPositions.push({ blockIdx: bIdx, cIdx });
-            }
+  if (clickedVal) {
+    // १. Result Sheet मधील सर्व समान फॅमिली जोड्या गोळा करणे
+    currentMatch.matchBlock.forEach((week, bIdx) => {
+      week.forEach((rawVal, cIdx) => {
+        if (cIdx > 0) {
+          const val = formatJodiVal(rawVal);
+          if (val && (val === clickedVal || checkSameFamily(val, clickedVal))) {
+            resHighlightedPositions.push({ blockIdx: bIdx, cIdx });
           }
-        });
-      });
-
-      // 2. Main Sheet मधील अचूक Row काढणे (Start Row - Past Rows + Current Block Index)
-      const matchStartRow = currentMatch.startRowIndex;
-      const pastCount = currentMatch.pastRowsCount;
-
-      resHighlightedPositions.forEach((pos) => {
-        const actualMainRow = matchStartRow - pastCount + pos.blockIdx;
-        if (actualMainRow >= 0 && actualMainRow < fullSheetData.length) {
-          mainHighlightedPositions.push({
-            rIdx: actualMainRow,
-            cIdx: pos.cIdx
-          });
         }
       });
-    }
+    });
+
+    // २. Main Sheet साठी Row Index Offset ची अचूक मॅपिंग करणे
+    const matchStartRow = currentMatch.startRowIndex; // पॅटर्न सुरू होणारा Row
+    const pastCount = currentMatch.pastRowsCount;     // Past Rows संख्या
+
+    resHighlightedPositions.forEach((pos) => {
+      // Result Sheet मधील Row (blockIdx) वरून Main Sheet चा मूळ Row काढणे
+      const targetMainRow = matchStartRow - pastCount + pos.blockIdx;
+
+      if (targetMainRow >= 0 && targetMainRow < fullSheetData.length) {
+        mainHighlightedPositions.push({
+          rIdx: targetMainRow,
+          cIdx: pos.cIdx
+        });
+      }
+    });
   }
+}
 
   return (
     <div className="app-wrapper">
@@ -708,21 +710,25 @@ const App: React.FC = () => {
                           const isRed = isRedJodi(formattedVal);
                           const { diff, total } = calculateMetrics(formattedVal);
 
-                          // RESULT SHEET GREEN HIGHLIGHT
-                          const isSyncResultFamily = resHighlightedPositions.some(
-                            (p) => p.blockIdx === blockIdx && p.cIdx === cIdx
-                          );
+                         // MAIN SHEET CELL COLOR PRIORITY
+const isSyncMainFamily = mainHighlightedPositions.some(
+  (p) => p.rIdx === rIdx && p.cIdx === cIdx
+);
 
-                          let cellBg = '#ffffff';
+let cellBg = '#ffffff';
 
-                          // १. जर क्लिक केले असेल आणि ही Cell त्या फॅमिलीतील असेल तर Bright Green
-                          if (clickedOffsetCell && isSyncResultFamily) {
-                            cellBg = CUSTOM_HIGHLIGHT_COLOR; // #00e676
-                          } 
-                          // २. मूळ पॅटर्नचे Pastel Colors जसे आहेत तसे राहतील
-                          else if (isMatch || isRepeatMatch) {
-                            cellBg = famColor;
-                          }
+// Priority 1: क्लिक केलेल्या पोझिशनवर ब्राइट ग्रीन हायलाइट
+if (clickedOffsetCell && isSyncMainFamily) {
+  cellBg = CUSTOM_HIGHLIGHT_COLOR; // #00e676 (Bright Green)
+} 
+// Priority 2: मूळ Selection ड्रॅग ब्ल्यू हायलाइट
+else if (matchedSets.length === 0 && isSelected) {
+  cellBg = '#a0c4ff'; 
+} 
+// Priority 3: मूळ Pattern चे Pastel Colors
+else if (isMatchedInOriginal || isRepeatMatch) {
+  cellBg = famColor; 
+}
 
                           return (
                             <td
