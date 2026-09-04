@@ -109,7 +109,7 @@ const App: React.FC = () => {
   const [minMatchCount, setMinMatchCount] = useState<number>(2);
   const [strictMode, setStrictMode] = useState<boolean>(false);
 
-  // RESULT SHEET मधील क्लिक केलेल्या जोडीची स्टेट
+  // CLICKED RESULT CELL STATE
   const [activeResultCell, setActiveResultCell] = useState<ClickedResultCell | null>(null);
 
   const lastRowRef = useRef<HTMLTableRowElement | null>(null);
@@ -186,6 +186,7 @@ const App: React.FC = () => {
     setIsSelecting(false);
   };
 
+  // ORIGINAL PATTERN SEARCH LOGIC
   const runPatternSearch = (): void => {
     if (selectedCells.length === 0 || fullSheetData.length === 0) return;
 
@@ -250,6 +251,7 @@ const App: React.FC = () => {
     setActiveResultCell(null);
   };
 
+  // RESULT CELL CLICK HANDLER
   const handleResultCellClick = (blockIdx: number, colIndex: number, value: string) => {
     if (colIndex === 0 || !value || value.includes('*')) return;
     setActiveResultCell({ blockIdx, colIndex, value });
@@ -280,7 +282,7 @@ const App: React.FC = () => {
 
   const currentMatch = matchedSets[currentMatchIndex] || null;
 
-  // RESULT SHEET मधील फॅमिलीनुसार जुळणाऱ्या सर्व पोझिशन्स शोधणे
+  // RESULT SHEET मधील फॅमिलीनुसार हिरव्या झालेल्या सेल्सच्या पोझिशन्स काढणे
   const highlightedResultPositions: { blockIdx: number; colIndex: number }[] = [];
 
   if (currentMatch && activeResultCell) {
@@ -364,7 +366,7 @@ const App: React.FC = () => {
                       const formattedVal = formatJodiVal(rawVal);
                       const isSelected = selectedCells.some((cell) => cell.rowIndex === rIdx && cell.colIndex === cIdx);
 
-                      // MAIN SHEET HIGHLIGHT (Same Position + Family Match)
+                      // UPDATE: MAIN SHEET SAME POSITION & FAMILY GREEN HIGHLIGHT LOGIC
                       let isMainHighlighted = false;
 
                       if (currentMatch && activeResultCell && highlightedResultPositions.length > 0) {
@@ -439,7 +441,7 @@ const App: React.FC = () => {
 
                         const formattedVal = formatJodiVal(rawVal);
 
-                        // RESULT SHEET HIGHLIGHT
+                        // UPDATE: RESULT SHEET CLICKED FAMILY GREEN HIGHLIGHT LOGIC
                         let isResultHighlighted = false;
                         if (activeResultCell) {
                           if (checkSameFamily(formattedVal, activeResultCell.value) || formattedVal === activeResultCell.value) {
