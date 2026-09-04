@@ -35,15 +35,6 @@ const checkSameFamily = (jodi1: string, jodi2: string): boolean => {
   return fam1 !== null && fam1 === fam2;
 };
 
-const isRedJodi = (jodiStr: string): boolean => {
-  if (!jodiStr || jodiStr.length < 2) return false;
-  const redFamilies = ["05", "16", "27", "38", "49"];
-  for (const famKey of redFamilies) {
-    if (JODI_FAMILIES[famKey].members.includes(jodiStr)) return true;
-  }
-  return false;
-};
-
 const calculateMetrics = (jodiStr: string) => {
   if (!jodiStr || jodiStr.length < 2 || jodiStr.includes('*') || jodiStr.includes('✪')) {
     return { diff: null, total: null };
@@ -118,7 +109,7 @@ const App: React.FC = () => {
   const [minMatchCount, setMinMatchCount] = useState<number>(2);
   const [strictMode, setStrictMode] = useState<boolean>(false);
 
-  // RESULT SHEET CLICKED CELL STATE
+  // RESULT SHEET मधील क्लिक केलेल्या जोडीची स्टेट
   const [activeResultCell, setActiveResultCell] = useState<ClickedResultCell | null>(null);
 
   const lastRowRef = useRef<HTMLTableRowElement | null>(null);
@@ -170,7 +161,7 @@ const App: React.FC = () => {
     const startCell = { rowIndex: rIdx, colIndex: cIdx, value: formatJodiVal(value) };
     setDragStartCell(startCell);
     setSelectedCells([startCell]);
-    setActiveResultCell(null); // Reset result click
+    setActiveResultCell(null);
   };
 
   const handleMoveSelection = (rIdx: number, cIdx: number): void => {
@@ -259,7 +250,6 @@ const App: React.FC = () => {
     setActiveResultCell(null);
   };
 
-  // RESULT CELL CLICK HANDLER
   const handleResultCellClick = (blockIdx: number, colIndex: number, value: string) => {
     if (colIndex === 0 || !value || value.includes('*')) return;
     setActiveResultCell({ blockIdx, colIndex, value });
@@ -290,7 +280,7 @@ const App: React.FC = () => {
 
   const currentMatch = matchedSets[currentMatchIndex] || null;
 
-  // RESULT SHEET HIGHLIGHT POSITIONS MATRIX
+  // RESULT SHEET मधील फॅमिलीनुसार जुळणाऱ्या सर्व पोझिशन्स शोधणे
   const highlightedResultPositions: { blockIdx: number; colIndex: number }[] = [];
 
   if (currentMatch && activeResultCell) {
@@ -374,7 +364,7 @@ const App: React.FC = () => {
                       const formattedVal = formatJodiVal(rawVal);
                       const isSelected = selectedCells.some((cell) => cell.rowIndex === rIdx && cell.colIndex === cIdx);
 
-                      // MAIN SHEET HIGHLIGHT LOGIC (Position Match + Family Match with Clicked Result Cell)
+                      // MAIN SHEET HIGHLIGHT (Same Position + Family Match)
                       let isMainHighlighted = false;
 
                       if (currentMatch && activeResultCell && highlightedResultPositions.length > 0) {
@@ -449,7 +439,7 @@ const App: React.FC = () => {
 
                         const formattedVal = formatJodiVal(rawVal);
 
-                        // RESULT SHEET HIGHLIGHT LOGIC
+                        // RESULT SHEET HIGHLIGHT
                         let isResultHighlighted = false;
                         if (activeResultCell) {
                           if (checkSameFamily(formattedVal, activeResultCell.value) || formattedVal === activeResultCell.value) {
