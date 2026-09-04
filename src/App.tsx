@@ -124,7 +124,8 @@ const App: React.FC = () => {
   const [minMatchCount, setMinMatchCount] = useState<number>(2);
   const [strictMode, setStrictMode] = useState<boolean>(false);
 
-  const [manualHighlightedFamily, setManualHighlightedFamily] = useState<string[]>([]);
+  // Clicked offset cell for synced cross-highlighting
+  const [clickedOffsetCell, setClickedOffsetCell] = useState<{ blockIdx: number; cIdx: number } | null>(null);
 
   const leftPanelRef = useRef<HTMLDivElement | null>(null);
   const lastRowRef = useRef<HTMLTableRowElement | null>(null);
@@ -184,7 +185,7 @@ const App: React.FC = () => {
     const startCell = { rowIndex: rIdx, colIndex: cIdx, value: formatJodiVal(value) };
     setDragStartCell(startCell);
     setSelectedCells([startCell]);
-    setManualHighlightedFamily([]);
+    setClickedOffsetCell(null);
   };
 
   const handleMoveSelection = (rIdx: number, cIdx: number): void => {
@@ -192,7 +193,7 @@ const App: React.FC = () => {
 
     const minRow = Math.min(dragStartCell.rowIndex, rIdx);
     const maxRow = Math.max(dragStartCell.rowIndex, rIdx);
-    if (maxRow - minRow + 1 > 30) return;
+    if (maxRow - minRow + 1 > 20) return;
 
     const minCol = Math.min(dragStartCell.colIndex, cIdx);
     const maxCol = Math.max(dragStartCell.colIndex, cIdx);
@@ -241,8 +242,10 @@ const App: React.FC = () => {
       for (let j = i + 1; j < selectedCells.length; j++) {
         const c1 = selectedCells[i];
         const c2 = selectedCells[j];
-        if (c1.value && c1.value === c2.value && !c1.value.includes('*') && !c1.value.includes('✪')) {
-          selRepeatPairs.push({ cell1: c1, cell2: c2 });
+        if (c1.value && c2.value && !c1.value.includes('*') && !c1.value.includes('✪')) {
+          if (c1.value === c2.value || checkSameFamily(c1.value, c2.value)) {
+            selRepeatPairs.push({ cell1: c1, cell2: c2 });
+          }
         }
       }
     }
@@ -311,23 +314,22 @@ const App: React.FC = () => {
     matches.sort((a, b) => b.matchCount - a.matchCount);
     setMatchedSets(matches);
     setCurrentMatchIndex(0);
-    setManualHighlightedFamily([]);
+    setClickedOffsetCell(null);
   };
 
   const handleReset = (): void => {
     setSelectedCells([]);
     setMatchedSets([]);
     setCurrentMatchIndex(0);
-    setManualHighlightedFamily([]);
+    setClickedOffsetCell(null);
   };
 
-  const handleJodiCellClick = (jodiVal: string) => {
-    if (!jodiVal || jodiVal.includes('*') || jodiVal.includes('✪')) return;
-    const fam = getFamilyMembers(jodiVal);
-    if (manualHighlightedFamily.length > 0 && manualHighlightedFamily.includes(jodiVal)) {
-      setManualHighlightedFamily([]);
+  const handleResultCellClick = (blockIdx: number, cIdx: number) => {
+    if (cIdx === 0) return;
+    if (clickedOffsetCell && clickedOffsetCell.blockIdx === blockIdx && clickedOffsetCell.cIdx === cIdx) {
+      setClickedOffsetCell(null);
     } else {
-      setManualHighlightedFamily(fam);
+      setClickedOffsetCell({ blockIdx, cIdx });
     }
   };
 
@@ -358,6 +360,29 @@ const App: React.FC = () => {
 
   const currentMatch = matchedSets[currentMatchIndex] || null;
   const selectedMinRow = selectedCells.length > 0 ? Math.min(...selectedCells.map((c) => c.rowIndex)) : 0;
+
+  // Sync family search values if result cell clicked
+  let resultClickedJodi = "";
+  let mainCorrespondingJodi = "";
+  let resultFamilyMembers: string[] = [];
+  let mainFamilyMembers: string[] = [];
+
+  if (currentMatch && clickedOffsetCell) {
+    const { blockIdx, cIdx } = clickedOffsetCell;
+    const resVal = formatJodiVal(currentMatch.matchBlock[blockIdx]?.[cIdx] || "");
+    resultClickedJodi = resVal;
+    resultFamilyMembers = getFamilyMembers(resVal);
+
+    // Calculate corresponding offset in Main Sheet
+    const offsetFromMatchStart = blockIdx - currentMatch.pastRowsCount;
+    const mainTargetRowIndex = selectedMinRow + offsetFromMatchStart;
+    
+    if (mainTargetRowIndex >= 0 && mainTargetRowIndex < fullSheetData.length) {
+      const mainVal = formatJodiVal(fullSheetData[mainTargetRowIndex]?.[cIdx] || "");
+      mainCorrespondingJodi = mainVal;
+      mainFamilyMembers = getFamilyMembers(mainVal);
+    }
+  }
 
   return (
     <div className="app-wrapper">
@@ -418,7 +443,10 @@ const App: React.FC = () => {
           {matchedSets.length > 0 && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: '6px', background: '#34495e', padding: '3px 6px', borderRadius: '3px' }}>
               <button 
-                onClick={() => setCurrentMatchIndex((prev) => Math.max(0, prev - 1))}
+                onClick={() => {
+                  setCurrentMatchIndex((prev) => Math.max(0, prev - 1));
+                  setClickedOffsetCell(null);
+                }}
                 disabled={currentMatchIndex === 0}
                 style={{ cursor: 'pointer', fontSize: '11px' }}
               >
@@ -428,7 +456,10 @@ const App: React.FC = () => {
                 Match {currentMatchIndex + 1} of {matchedSets.length}
               </span>
               <button 
-                onClick={() => setCurrentMatchIndex((prev) => Math.min(matchedSets.length - 1, prev + 1))}
+                onClick={() => {
+                  setCurrentMatchIndex((prev) => Math.min(matchedSets.length - 1, prev + 1));
+                  setClickedOffsetCell(null);
+                }}
                 disabled={currentMatchIndex === matchedSets.length - 1}
                 style={{ cursor: 'pointer', fontSize: '11px' }}
               >
@@ -514,10 +545,11 @@ const App: React.FC = () => {
                       const isRed = isRedJodi(formattedVal);
                       const { diff, total } = calculateMetrics(formattedVal);
 
-                      const isManualHighlight = manualHighlightedFamily.includes(formattedVal);
+                      // Check synced family highlight for Main Sheet from clicked offset
+                      const isSyncMainFamily = mainFamilyMembers.length > 0 && mainFamilyMembers.includes(formattedVal);
 
                       let cellBg = '#ffffff';
-                      if (isManualHighlight) {
+                      if (isSyncMainFamily) {
                         cellBg = CUSTOM_HIGHLIGHT_COLOR; 
                       } else if (matchedSets.length === 0 && isSelected) {
                         cellBg = '#a0c4ff'; 
@@ -525,7 +557,7 @@ const App: React.FC = () => {
                         cellBg = famColor;
                       }
 
-                      const isHighlightCell = isMatchedInOriginal || isRepeatMatch || isManualHighlight;
+                      const isHighlightCell = isMatchedInOriginal || isRepeatMatch || isSyncMainFamily;
 
                       return (
                         <td
@@ -535,7 +567,7 @@ const App: React.FC = () => {
                           data-col={cIdx}
                           style={{ 
                             backgroundColor: cellBg, 
-                            border: isManualHighlight ? '2px solid #00c853' : isExactJodiMatch ? '2px solid #b71c1c' : isHighlightCell ? '2px solid #27ae60' : '1px solid #ccc',
+                            border: isSyncMainFamily ? '2px solid #00c853' : isExactJodiMatch ? '2px solid #b71c1c' : isHighlightCell ? '2px solid #27ae60' : '1px solid #ccc',
                             fontWeight: 'bold',
                             padding: '2px 0px',
                             cursor: 'pointer' 
@@ -543,11 +575,6 @@ const App: React.FC = () => {
                           onMouseDown={() => handleStartSelection(rIdx, cIdx, formattedVal)}
                           onMouseEnter={() => handleMoveSelection(rIdx, cIdx)}
                           onTouchStart={() => handleStartSelection(rIdx, cIdx, formattedVal)}
-                          onClick={() => {
-                            if (matchedSets.length > 0 && !isHighlightCell) {
-                              handleJodiCellClick(formattedVal);
-                            }
-                          }}
                         >
                           <div data-row={rIdx} data-col={cIdx} className={`jodi-val ${isRed ? 'red-text' : ''}`} style={{ fontSize: '14px', fontWeight: 'bold', textAlign: 'center', lineHeight: '1.1' }}>
                             {formattedVal || '**'}
@@ -664,10 +691,11 @@ const App: React.FC = () => {
                           const isRed = isRedJodi(formattedVal);
                           const { diff, total } = calculateMetrics(formattedVal);
 
-                          const isManualHighlight = manualHighlightedFamily.includes(formattedVal);
+                          // Check synced family highlight for Result Sheet from clicked offset
+                          const isSyncResultFamily = resultFamilyMembers.length > 0 && resultFamilyMembers.includes(formattedVal);
 
                           let cellBg = '#ffffff';
-                          if (isManualHighlight) {
+                          if (isSyncResultFamily) {
                             cellBg = CUSTOM_HIGHLIGHT_COLOR; 
                           } else if (isMatch || isRepeatMatch) {
                             cellBg = famColor;
@@ -679,14 +707,12 @@ const App: React.FC = () => {
                               className="pdf-jodi-cell"
                               style={{ 
                                 backgroundColor: cellBg, 
-                                border: isManualHighlight ? '2px solid #00c853' : isExactJodiMatch ? '2px solid #b71c1c' : (isMatch || isRepeatMatch) ? '2px solid #27ae60' : '1px solid #ccc',
+                                border: isSyncResultFamily ? '2px solid #00c853' : isExactJodiMatch ? '2px solid #b71c1c' : (isMatch || isRepeatMatch) ? '2px solid #27ae60' : '1px solid #ccc',
                                 fontWeight: 'bold',
                                 padding: '2px 0px',
                                 cursor: 'pointer'
                               }}
-                              onClick={() => {
-                                handleJodiCellClick(formattedVal);
-                              }}
+                              onClick={() => handleResultCellClick(blockIdx, cIdx)}
                             >
                               <div className={`jodi-val ${isRed ? 'red-text' : ''}`} style={{ fontSize: '14px', fontWeight: 'bold', textAlign: 'center', lineHeight: '1.1' }}>
                                 {formattedVal || '**'}
