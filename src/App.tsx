@@ -191,7 +191,7 @@ const App: React.FC = () => {
 
     const minRow = Math.min(dragStartCell.rowIndex, rIdx);
     const maxRow = Math.max(dragStartCell.rowIndex, rIdx);
-    if (maxRow - minRow + 1 > 20) return;
+    if (maxRow - minRow + 1 > 30) return;
 
     const minCol = Math.min(dragStartCell.colIndex, cIdx);
     const maxCol = Math.max(dragStartCell.colIndex, cIdx);
@@ -359,10 +359,7 @@ const App: React.FC = () => {
   const currentMatch = matchedSets[currentMatchIndex] || null;
   const selectedMinRow = selectedCells.length > 0 ? Math.min(...selectedCells.map((c) => c.rowIndex)) : 0;
 
-  // LOGIC IMPLEMENTATION:
-  // 1. Gather all positions in Result Sheet where cell belongs to Clicked Cell's family
-  // 2. Extract corresponding Main Sheet values at those positions
-  // 3. Verify if ALL those Main Sheet values belong to ONE SINGLE family amongst themselves
+  // --- REVISED SIMPLE HIGHLIGHT LOGIC ---
   const getGroupMatchMap = (): Set<string> => {
     const matchedKeys = new Set<string>();
     if (!clickedResultCell || !currentMatch) return matchedKeys;
@@ -370,9 +367,9 @@ const App: React.FC = () => {
     const clickedFam = getFamilyKey(clickedResultCell.value);
     if (!clickedFam) return matchedKeys;
 
-    const positions: { bIdx: number; cIdx: number; mainVal: string }[] = [];
+    // 1. Find all cells in Result Sheet that belong to clicked cell's family
+    const matchingPositions: { bIdx: number; cIdx: number; mainVal: string }[] = [];
 
-    // Find all matching family cells in Result Sheet
     currentMatch.matchBlock.forEach((row, bIdx) => {
       row.forEach((val, cIdx) => {
         if (cIdx === 0) return;
@@ -380,25 +377,27 @@ const App: React.FC = () => {
         if (checkSameFamily(resVal, clickedResultCell.value)) {
           const mainRowIdx = selectedMinRow + (bIdx - currentMatch.pastRowsCount);
           const mainVal = formatJodiVal(fullSheetData[mainRowIdx]?.[cIdx] || "");
-          positions.push({ bIdx, cIdx, mainVal });
+          matchingPositions.push({ bIdx, cIdx, mainVal });
         }
       });
     });
 
-    if (positions.length === 0) return matchedKeys;
+    if (matchingPositions.length === 0) return matchedKeys;
 
-    // Check if ALL corresponding Main Sheet values belong to the same family
-    const validMainVals = positions.map(p => p.mainVal).filter(v => v && !v.includes('*') && !v.includes('✪'));
+    // 2. Collect valid values from Main Sheet at those exact positions
+    const validMainVals = matchingPositions.map(p => p.mainVal).filter(v => v && !v.includes('*') && !v.includes('✪'));
+    
     if (validMainVals.length === 0) return matchedKeys;
 
-    const firstMainFam = getFamilyKey(validMainVals[0]);
-    if (!firstMainFam) return matchedKeys;
+    // 3. Check if all corresponding Main Sheet values belong to the same family
+    const targetMainFam = getFamilyKey(validMainVals[0]);
+    const isMainGroupUniform = validMainVals.length > 1 
+      ? validMainVals.every(v => getFamilyKey(v) === targetMainFam)
+      : true;
 
-    const areAllMainSameFamily = validMainVals.every(val => getFamilyKey(val) === firstMainFam);
-
-    // Highlight only if Main Sheet cells are all in the same family
-    if (areAllMainSameFamily) {
-      positions.forEach(p => {
+    // 4. If Main Sheet cells are of the same family, highlight those positions
+    if (isMainGroupUniform) {
+      matchingPositions.forEach(p => {
         matchedKeys.add(`${p.bIdx}_${p.cIdx}`);
       });
     }
